@@ -46,3 +46,6 @@ AGENTS.md
 docs/maintainer-guide.md
 docs/drafts/
 forks.md
+
+# Local pre-update backups (DB snapshots, session data) — never commit
+backups/
