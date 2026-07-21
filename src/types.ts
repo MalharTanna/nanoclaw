@@ -124,6 +124,15 @@ export interface MessagingGroupAgent {
   ignored_message_policy: IgnoredMessagePolicy;
   session_mode: 'shared' | 'per-thread' | 'agent-shared';
   priority: number;
+  /**
+   * Per-wiring thread-policy override (migration 019). NULL = inherit the
+   * channel adapter's declared default for the wiring's context (DM vs
+   * group); 1/0 = explicit override, hard-ANDed with the adapter's raw
+   * capability at router fanout (resolveThreadPolicy). Optional on the TS
+   * type per the denied_at convention so pre-migration fixtures don't need
+   * updating.
+   */
+  threads?: number | null;
   created_at: string;
 }
 
@@ -142,7 +151,7 @@ export interface Session {
 // ── Session DB entities ──
 
 export type MessageInKind = 'chat' | 'chat-sdk' | 'task' | 'webhook' | 'system';
-export type MessageInStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type MessageInStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
 
 export interface MessageIn {
   id: string;
@@ -200,8 +209,13 @@ export interface PendingApproval {
   channel_type: string | null;
   platform_id: string | null;
   platform_message_id: string | null;
+  /**
+   * For OneCLI credential rows, the gateway's request TTL. For a module
+   * approval held by "Reject with reason…", the deadline after which the
+   * host sweep finalizes a plain reject (set by markApprovalAwaitingReason).
+   */
   expires_at: string | null;
-  status: 'pending' | 'approved' | 'rejected' | 'expired';
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'awaiting_reason';
   title: string;
   options_json: string;
   /** When set, only this exact user may resolve the approval. */
