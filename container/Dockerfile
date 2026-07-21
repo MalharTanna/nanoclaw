@@ -32,6 +32,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         chromium \
         fonts-liberation \
         fonts-noto-color-emoji \
+        fonts-lato \
+        fonts-ebgaramond \
+        fonts-noto-core \
+        fonts-firacode \
         libgbm1 \
         libnss3 \
         libatk-bridge2.0-0 \
@@ -53,6 +57,67 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && if [ "$INSTALL_CJK_FONTS" = "true" ]; then \
         apt-get install -y --no-install-recommends fonts-noto-cjk; \
        fi \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---- Document & image extraction ---------------------------------------------
+# Lets the agent read attachments the user sends (Word/Excel/PowerPoint/PDF/
+# images). PDFs and common images (jpg/png/gif/webp) are handled natively by the
+# agent's Read tool — no tooling needed. These packages add:
+#   - libreoffice (headless): convert any Office format incl. legacy
+#     doc/xls/ppt and odt/ods/odp → pdf/txt/csv via `soffice --headless`.
+#   - poppler-utils: pdftotext (fast text PDFs) + pdftoppm (rasterize for OCR).
+#   - tesseract-ocr (+eng): OCR scanned PDFs and photos of documents.
+#   - imagemagick + libheif1: convert exotic image formats (tiff/bmp/heic) → png
+#     so the Read tool can view them.
+#   - weasyprint: pure-Python HTML/CSS → PDF renderer (no browser/GPU). Powers the
+#     document-design container skill's expert-grade PDFs — reliable in containers
+#     where headless Chromium's GPU process is unstable, and it renders @page
+#     margin boxes so documents get real page numbers/headers.
+# Kept in a separate layer so it doesn't invalidate the Chromium layer above.
+# See the read-documents and document-design container skills for usage.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+        libreoffice-core \
+        libreoffice-writer \
+        libreoffice-calc \
+        libreoffice-impress \
+        poppler-utils \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        imagemagick \
+        libheif1 \
+        weasyprint \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---- Video analysis (ffmpeg + whisper.cpp) -----------------------------------
+# Lets the agent analyze videos members send: ffmpeg samples frames (the model
+# SEES them) and extracts audio; whisper.cpp transcribes speech with the 'small'
+# multilingual model (Hindi/Gujarati/English, auto-detected). See the
+# analyze-video container skill.
+#
+# ffmpeg + the ~466MB model live in their own layer so iterating on the
+# whisper.cpp build below doesn't re-fetch the model.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/whisper \
+    && curl -fsSL -o /opt/whisper/ggml-small.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
+
+# Compile whisper.cpp as a STATIC, portable binary (no native -mcpu flags, no
+# shared libs to ship), then purge the build toolchain so it doesn't bloat the
+# image — only the self-contained whisper-cli binary remains.
+ARG WHISPER_CPP_VERSION=v1.7.4
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends build-essential cmake \
+    && git clone --depth 1 --branch ${WHISPER_CPP_VERSION} https://github.com/ggerganov/whisper.cpp /tmp/whisper.cpp \
+    && cmake -S /tmp/whisper.cpp -B /tmp/whisper.cpp/build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON \
+    && cmake --build /tmp/whisper.cpp/build -j --config Release --target whisper-cli \
+    && install -m 0755 /tmp/whisper.cpp/build/bin/whisper-cli /usr/local/bin/whisper-cli \
+    && rm -rf /tmp/whisper.cpp \
+    && apt-get purge -y build-essential cmake && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Chromium path for agent-browser / Playwright consumers

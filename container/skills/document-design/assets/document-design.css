@@ -1,0 +1,208 @@
+/* ============================================================================
+   NanoClaw Document Design System
+   A print-first stylesheet for expert-grade PDFs rendered with WeasyPrint.
+   Single source of truth — html2pdf.sh inlines this into the document before
+   rendering, so every PDF is fully self-contained.
+
+   Engine note: this targets WeasyPrint (pure-Python, no browser). Layout uses
+   tables / inline-block / floats (NOT CSS grid or flexbox, which WeasyPrint
+   supports only partially). @page margin boxes give real page numbers.
+
+   Themes (set on <body>):
+     (default)      modern — Lato sans body, crisp and corporate
+     .theme-classic classic — EB Garamond serif body, editorial and elegant
+   Accent + paper size are single variables — override in the doc's own <style>.
+   ============================================================================ */
+
+:root {
+  --paper:        #ffffff;
+  --ink:          #1a1c20;   /* near-black, slightly warm */
+  --ink-soft:     #3b3f47;
+  --muted:        #6b7280;   /* captions, meta, secondary */
+  --faint:        #9aa1ab;   /* eyebrows, fine print */
+  --rule:         #e6e8ec;   /* hairlines */
+  --rule-strong:  #cbd0d8;
+  --accent:       #1e3a5f;   /* deep navy — change this one line to rebrand */
+  --accent-ink:   #16467e;   /* accent used as text (a touch brighter) */
+  --accent-tint:  #eef2f8;   /* pale accent wash for callouts/table zebra */
+  --accent-tint2: #e3eaf3;
+
+  --font-sans:  "Lato", "Noto Sans", sans-serif;
+  --font-serif: "EB Garamond", "Noto Serif", Georgia, serif;
+  --font-mono:  "Fira Code", "Noto Sans Mono", monospace;
+
+  --page-size: A4;   /* switch to "Letter" via body { --page-size: Letter } */
+}
+
+/* Page geometry. Generous, even margins read as premium. */
+@page { size: A4; margin: 22mm 20mm; }
+
+* { box-sizing: border-box; }
+
+html { color: var(--ink); }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 10.5pt;
+  line-height: 1.55;
+  color: var(--ink);
+  background: var(--paper);
+}
+
+/* Classic theme swaps body copy to a refined serif at a slightly larger size. */
+body.theme-classic { font-family: var(--font-serif); font-size: 11.5pt; line-height: 1.6; }
+
+/* ---- Headings -------------------------------------------------------------- */
+h1, h2, h3, h4 {
+  font-family: var(--font-sans);
+  color: var(--ink);
+  line-height: 1.2;
+  margin: 0 0 .4em;
+  break-after: avoid; page-break-after: avoid;
+}
+h1 { font-size: 24pt; font-weight: 800; letter-spacing: -.015em; margin-top: 0; }
+h2 {
+  font-size: 15pt; font-weight: 700; letter-spacing: -.01em;
+  margin-top: 1.5em; padding-bottom: .3em; border-bottom: 1px solid var(--rule);
+}
+h3 { font-size: 12pt; font-weight: 700; margin-top: 1.2em; color: var(--ink-soft); }
+h4 { font-size: 10.5pt; font-weight: 700; margin-top: 1.1em; color: var(--ink-soft); }
+body.theme-classic h1, body.theme-classic h2,
+body.theme-classic h3, body.theme-classic h4 { font-family: var(--font-serif); }
+
+p { margin: 0 0 .75em; }
+a { color: var(--accent-ink); text-decoration: none; }
+
+/* Eyebrow / section labels — small, tracked, uppercase. A signature detail. */
+.eyebrow, .label {
+  font-family: var(--font-sans);
+  font-size: 8pt; font-weight: 700;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--accent-ink);
+  margin: 0 0 .5em;
+}
+.muted { color: var(--muted); }
+.faint { color: var(--faint); }
+.small { font-size: 9pt; }
+
+.lead {
+  font-size: 12.5pt; line-height: 1.5; color: var(--ink-soft);
+  font-weight: 400; margin-bottom: 1.1em;
+}
+body.theme-classic .lead { font-size: 14pt; }
+
+hr, .rule { border: 0; border-top: 1px solid var(--rule); margin: 1.3em 0; height: 0; }
+.rule-accent { border-top: 2px solid var(--accent); }
+
+/* ---- Cover page ------------------------------------------------------------
+   Fixed-height block so the meta band can pin to the lower area. Height is tuned
+   to sit safely inside both A4 and US Letter content boxes without spilling to a
+   blank page. */
+.doc-cover {
+  position: relative;
+  box-sizing: border-box;
+  height: 230mm;
+  page: cover;
+  break-after: page; page-break-after: always;
+  padding-top: 6mm;
+}
+.doc-cover .bar { width: 56mm; height: 5px; background: var(--accent); margin-bottom: 20mm; }
+.doc-cover .cover-title {
+  font-size: 34pt; font-weight: 800; letter-spacing: -.02em; line-height: 1.08;
+  margin: 0 0 .35em; max-width: 150mm;
+}
+.doc-cover .cover-sub { font-size: 14pt; color: var(--muted); font-weight: 400; max-width: 140mm; }
+.doc-cover .cover-meta {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  border-top: 1px solid var(--rule); padding-top: 6mm;
+}
+.doc-cover .cover-meta > div {
+  display: inline-block; vertical-align: top; width: 31%; margin-right: 2%; margin-bottom: 4mm;
+}
+.doc-cover .cover-meta .k { font-size: 8pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin-bottom: 2px; }
+.doc-cover .cover-meta .v { font-size: 10.5pt; color: var(--ink); }
+
+/* Blank the running footer on the cover page. */
+@page cover { size: A4; margin: 22mm 20mm; @bottom-center { content: none; } @bottom-right { content: none; } }
+
+/* ---- Letterhead / brand row (table = robust two-column) -------------------- */
+.brand { display: table; width: 100%; margin-bottom: 9mm; }
+.brand > div { display: table-cell; vertical-align: baseline; }
+.brand .name { font-size: 15pt; font-weight: 800; letter-spacing: -.01em; }
+.brand .contact { font-size: 9pt; color: var(--muted); text-align: right; line-height: 1.5; }
+
+/* ---- Tables ---------------------------------------------------------------- */
+table { width: 100%; border-collapse: collapse; margin: 1em 0; font-size: 9.75pt; }
+thead { display: table-header-group; }          /* repeat header across page breaks */
+th {
+  text-align: left; font-family: var(--font-sans); font-weight: 700;
+  font-size: 8pt; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+  padding: 7px 10px; border-bottom: 1.5px solid var(--accent);
+}
+td { padding: 7px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tbody tr { break-inside: avoid; page-break-inside: avoid; }
+tbody tr:nth-child(even) td { background: var(--accent-tint); }
+.table-plain tbody tr:nth-child(even) td { background: transparent; }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+caption { caption-side: bottom; text-align: left; font-size: 8.5pt; color: var(--muted); padding-top: 6px; }
+
+/* ---- Key/value blocks (inline-block columns) ------------------------------- */
+.kv { margin: 1em 0; }
+.kv > div { display: inline-block; vertical-align: top; width: 31%; margin-right: 2%; margin-bottom: 4mm; }
+.kv .k { font-size: 8pt; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); margin-bottom: 2px; }
+.kv .v { font-size: 10.5pt; }
+
+/* ---- Callouts / notes ------------------------------------------------------ */
+.callout {
+  border-left: 3px solid var(--accent); background: var(--accent-tint);
+  padding: 10px 14px; margin: 1.1em 0; border-radius: 0 3px 3px 0;
+  break-inside: avoid; page-break-inside: avoid; font-size: 10pt;
+}
+.callout .callout-title { font-weight: 700; font-size: 8.5pt; letter-spacing: .08em; text-transform: uppercase; color: var(--accent-ink); margin-bottom: 3px; }
+.callout.warn { border-left-color: #b45309; background: #fdf3e7; }
+.callout.warn .callout-title { color: #92400e; }
+.callout.good { border-left-color: #15803d; background: #ecf6ef; }
+.callout.good .callout-title { color: #166534; }
+
+blockquote {
+  margin: 1.1em 0; padding: 2px 0 2px 16px; border-left: 2px solid var(--rule-strong);
+  font-family: var(--font-serif); font-style: italic; font-size: 12.5pt; color: var(--ink-soft);
+}
+
+/* ---- Lists ----------------------------------------------------------------- */
+ul, ol { margin: 0 0 .8em; padding-left: 1.2em; }
+li { margin: .2em 0; }
+
+/* ---- Invoice / quote totals (float-based two columns) ---------------------- */
+.totals { width: 72mm; margin-left: auto; margin-top: 6mm; font-size: 10pt; }
+.totals .row { overflow: hidden; padding: 5px 0; border-bottom: 1px solid var(--rule); }
+.totals .row .num { float: right; font-variant-numeric: tabular-nums; }
+.totals .row.grand {
+  border-bottom: 0; border-top: 2px solid var(--accent); margin-top: 3px; padding-top: 8px;
+  font-size: 13pt; font-weight: 800;
+}
+
+/* ---- Badges / tags --------------------------------------------------------- */
+.badge {
+  display: inline-block; font-size: 8pt; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; padding: 2px 8px; border-radius: 20px;
+  background: var(--accent); color: #fff;
+}
+.badge.soft { background: var(--accent-tint2); color: var(--accent-ink); }
+
+/* ---- Signature block ------------------------------------------------------- */
+.signature { margin-top: 14mm; }
+.signature .line { display: inline-block; width: 60mm; border-top: 1px solid var(--ink); padding-top: 4px; font-size: 9pt; color: var(--muted); }
+
+/* ---- Code ------------------------------------------------------------------ */
+code { font-family: var(--font-mono); font-size: 9pt; background: #f3f4f6; padding: 1px 4px; border-radius: 3px; }
+pre { font-family: var(--font-mono); font-size: 8.75pt; background: #f7f8fa; border: 1px solid var(--rule); border-radius: 4px; padding: 12px 14px; break-inside: avoid; page-break-inside: avoid; }
+pre code { background: transparent; padding: 0; }
+
+/* ---- Print hygiene --------------------------------------------------------- */
+img { max-width: 100%; }
+figure { margin: 1.1em 0; break-inside: avoid; page-break-inside: avoid; }
+figure figcaption { font-size: 8.5pt; color: var(--muted); margin-top: 5px; }
+.page-break { break-after: page; page-break-after: always; }
+.avoid-break { break-inside: avoid; page-break-inside: avoid; }

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Proposal</title>
+<link rel="stylesheet" href="document-design.css">
+<style>
+  body { --accent: #1e3a5f; }
+  /* Page numbers on every page except the cover (blanked by @page cover). */
+  @page { @bottom-center { content: counter(page) " / " counter(pages); font-family: "Lato"; font-size: 8pt; color: #9aa1ab; } }
+</style>
+</head>
+<body>
+
+  <!-- ===== Cover ===== -->
+  <section class="doc-cover">
+    <div class="bar"></div>
+    <div class="eyebrow">Proposal</div>
+    <h1 class="cover-title">Project Title Goes Here</h1>
+    <p class="cover-sub">A short, benefit-led subtitle that says what the client gets.</p>
+    <div class="spacer"></div>
+    <div class="cover-meta">
+      <div><div class="k">Prepared for</div><div class="v">Client Name</div></div>
+      <div><div class="k">Prepared by</div><div class="v">Your Company</div></div>
+      <div><div class="k">Date</div><div class="v">4 July 2026</div></div>
+      <div><div class="k">Valid until</div><div class="v">4 August 2026</div></div>
+    </div>
+  </section>
+
+  <h2>The opportunity</h2>
+  <p class="lead">State the client's goal or problem in their words. Show you understand what
+  success looks like for them.</p>
+  <p>One paragraph of context that frames why this matters now.</p>
+
+  <h2>Our approach</h2>
+  <p>Describe how you'll deliver, broken into clear phases.</p>
+  <table class="table-plain">
+    <thead><tr><th>Phase</th><th>What we do</th><th class="num">Timeline</th></tr></thead>
+    <tbody>
+      <tr><td><strong>1 · Discovery</strong></td><td>Requirements, audit, and plan.</td><td class="num">Week 1</td></tr>
+      <tr><td><strong>2 · Build</strong></td><td>Design and implementation.</td><td class="num">Weeks 2–5</td></tr>
+      <tr><td><strong>3 · Launch</strong></td><td>Testing, handover, and support.</td><td class="num">Week 6</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Deliverables</h2>
+  <ul>
+    <li>Concrete thing the client will receive.</li>
+    <li>Another tangible output.</li>
+    <li>Documentation and training.</li>
+  </ul>
+
+  <h2>Investment</h2>
+  <div class="totals" style="width:80mm; margin-left:0">
+    <div class="row"><span>Phase 1 — Discovery</span><span class="num">₹40,000</span></div>
+    <div class="row"><span>Phase 2 — Build</span><span class="num">₹1,80,000</span></div>
+    <div class="row"><span>Phase 3 — Launch</span><span class="num">₹35,000</span></div>
+    <div class="row grand"><span>Total</span><span class="num">₹2,55,000</span></div>
+  </div>
+
+  <div class="callout good">
+    <div class="callout-title">Why us</div>
+    One or two sentences of proof — relevant experience, a result, or a guarantee.
+  </div>
+
+  <h2>Next steps</h2>
+  <p>Make it easy to say yes: sign, pay a deposit, book a kickoff call.</p>
+  <div class="signature">
+    <div class="kv">
+      <div><div class="line">Client signature</div></div>
+      <div><div class="line">Date</div></div>
+    </div>
+  </div>
+
+</body>
+</html>

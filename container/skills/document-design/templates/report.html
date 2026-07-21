@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Report</title>
+<link rel="stylesheet" href="document-design.css">
+<style>
+  /* Per-document overrides go here. Rebrand by changing --accent. */
+  body { --accent: #1e3a5f; }
+  /* Page numbers on every page except the cover (blanked by @page cover). */
+  @page { @bottom-center { content: counter(page) " / " counter(pages); font-family: "Lato"; font-size: 8pt; color: #9aa1ab; } }
+</style>
+</head>
+<body>
+
+  <!-- ===== Cover ===== -->
+  <section class="doc-cover">
+    <div class="bar"></div>
+    <div class="eyebrow">Quarterly Report</div>
+    <h1 class="cover-title">Business Performance Review</h1>
+    <p class="cover-sub">A concise summary of results, insights, and recommended next steps.</p>
+    <div class="spacer"></div>
+    <div class="cover-meta">
+      <div><div class="k">Prepared for</div><div class="v">Client / Team Name</div></div>
+      <div><div class="k">Prepared by</div><div class="v">Your Name</div></div>
+      <div><div class="k">Date</div><div class="v">4 July 2026</div></div>
+      <div><div class="k">Reference</div><div class="v">RPT-2026-001</div></div>
+    </div>
+  </section>
+
+  <!-- ===== Body ===== -->
+  <h2>Executive summary</h2>
+  <p class="lead">Open with the single most important takeaway in one or two sentences. The
+  reader should understand the conclusion before any detail.</p>
+  <p>Follow with a short paragraph of supporting context. Keep sentences tight and specific —
+  numbers, dates, names. Avoid filler.</p>
+
+  <div class="callout">
+    <div class="callout-title">Key result</div>
+    Highlight a headline metric or decision here. Callouts draw the eye without shouting.
+  </div>
+
+  <h2>Findings</h2>
+  <h3>1. First area</h3>
+  <p>Explain the finding, then evidence. Use a table when comparing numbers.</p>
+
+  <table>
+    <thead>
+      <tr><th>Metric</th><th class="num">This period</th><th class="num">Last period</th><th class="num">Change</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Revenue</td><td class="num">₹12,40,000</td><td class="num">₹10,90,000</td><td class="num">+13.8%</td></tr>
+      <tr><td>New customers</td><td class="num">184</td><td class="num">150</td><td class="num">+22.7%</td></tr>
+      <tr><td>Churn</td><td class="num">3.1%</td><td class="num">3.9%</td><td class="num">−0.8pp</td></tr>
+    </tbody>
+    <caption>Table 1 — Core metrics, period over period.</caption>
+  </table>
+
+  <h3>2. Second area</h3>
+  <p>Keep each subsection focused on one idea. Use bullet lists for parallel points:</p>
+  <ul>
+    <li>Point one, stated as an outcome.</li>
+    <li>Point two, with a supporting figure.</li>
+    <li>Point three.</li>
+  </ul>
+
+  <blockquote>A pulled quote or guiding principle can anchor a section and give the page rhythm.</blockquote>
+
+  <h2>Recommendations</h2>
+  <ol>
+    <li><strong>Do this first.</strong> Why, and the expected impact.</li>
+    <li><strong>Then this.</strong> Owner and timeline.</li>
+    <li><strong>Finally this.</strong> How success is measured.</li>
+  </ol>
+
+  <div class="callout good">
+    <div class="callout-title">Next step</div>
+    End with a clear, single call to action.
+  </div>
+
+</body>
+</html>

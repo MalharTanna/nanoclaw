@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Invoice</title>
+<link rel="stylesheet" href="document-design.css">
+<style>
+  body { --accent: #1e3a5f; }
+</style>
+</head>
+<body>
+
+  <div class="brand">
+    <div>
+      <div class="name">Your Company Pvt. Ltd.</div>
+      <div class="small muted">GSTIN 24ABCDE1234F1Z5</div>
+    </div>
+    <div class="contact">
+      123 Business Road, Ahmedabad 380001<br>
+      billing@yourcompany.com · +91 90000 00000<br>
+      www.yourcompany.com
+    </div>
+  </div>
+
+  <div class="eyebrow">Tax Invoice</div>
+  <h1 style="margin-bottom:.3em">Invoice INV-2026-0142</h1>
+
+  <div class="kv">
+    <div><div class="k">Billed to</div><div class="v">Client Name<br><span class="muted small">Client address line, City 000000</span></div></div>
+    <div><div class="k">Invoice date</div><div class="v">4 July 2026</div></div>
+    <div><div class="k">Due date</div><div class="v">18 July 2026</div></div>
+    <div><div class="k">Status</div><div class="v"><span class="badge">Unpaid</span></div></div>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Consulting services — July<br><span class="muted small">Strategy &amp; implementation</span></td><td class="num">20</td><td class="num">₹2,500</td><td class="num">₹50,000</td></tr>
+      <tr><td>Design work</td><td class="num">1</td><td class="num">₹18,000</td><td class="num">₹18,000</td></tr>
+      <tr><td>Hosting (annual)</td><td class="num">1</td><td class="num">₹6,000</td><td class="num">₹6,000</td></tr>
+    </tbody>
+  </table>
+
+  <div class="totals">
+    <div class="row"><span>Subtotal</span><span class="num">₹74,000</span></div>
+    <div class="row"><span>GST (18%)</span><span class="num">₹13,320</span></div>
+    <div class="row grand"><span>Total due</span><span class="num">₹87,320</span></div>
+  </div>
+
+  <div class="callout" style="margin-top:12mm">
+    <div class="callout-title">Payment details</div>
+    Bank: Your Bank · A/C 0000 0000 0000 · IFSC ABCD0000123 · UPI you@bank<br>
+    Please reference the invoice number with your payment.
+  </div>
+
+  <p class="small muted" style="margin-top:8mm">Thank you for your business. Payment is due within 14 days.
+  A late fee of 1.5% per month applies to overdue amounts.</p>
+
+</body>
+</html>
