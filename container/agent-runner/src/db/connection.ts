@@ -153,6 +153,34 @@ export function clearContainerToolInFlight(): void {
 }
 
 /**
+ * Close both session DB handles.
+ *
+ * Called from the SIGTERM path. Closing outbound.db is the load-bearing part:
+ * it finalises the DELETE-mode rollback journal, so the file the host reads is
+ * left clean. A container torn down without this leaves a hot journal that the
+ * host's read-only delivery handle cannot roll back, and every subsequent
+ * delivery poll for the session fails with SQLITE_READONLY until some writer
+ * reopens the file.
+ *
+ * Idempotent and never throws — shutdown must not be blocked by a bad handle.
+ */
+export function closeDbs(): void {
+  for (const [label, db] of [
+    ['outbound', _outbound],
+    ['inbound', _inbound],
+  ] as const) {
+    if (!db) continue;
+    try {
+      db.close();
+    } catch (err) {
+      console.error(`[agent-runner] Failed to close ${label} db: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  _outbound = null;
+  _inbound = null;
+}
+
+/**
  * Touch the heartbeat file — replaces the old touchProcessing() DB writes.
  * The host checks this file's mtime for stale container detection.
  * A file touch is cheaper and avoids cross-boundary DB write contention.

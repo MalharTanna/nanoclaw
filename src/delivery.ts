@@ -136,7 +136,14 @@ async function pollActive(): Promise<void> {
   try {
     const sessions = getRunningSessions();
     for (const session of sessions) {
-      await deliverSessionMessages(session);
+      // Isolate per session: one bad session (e.g. a hot rollback journal left
+      // by a hard-killed container) must not starve every session ordered
+      // after it for the rest of this tick.
+      try {
+        await deliverSessionMessages(session);
+      } catch (err) {
+        log.error('Session delivery failed', { sessionId: session.id, err });
+      }
     }
   } catch (err) {
     log.error('Active delivery poll error', { err });
@@ -151,7 +158,11 @@ async function pollSweep(): Promise<void> {
   try {
     const sessions = getActiveSessions();
     for (const session of sessions) {
-      await deliverSessionMessages(session);
+      try {
+        await deliverSessionMessages(session);
+      } catch (err) {
+        log.error('Session delivery failed', { sessionId: session.id, err });
+      }
     }
   } catch (err) {
     log.error('Sweep delivery poll error', { err });

@@ -13,14 +13,18 @@ vi.mock('./log.js', () => ({
 
 // Mock child_process — store the mock fn so tests can configure it
 const mockExecSync = vi.fn();
+const mockSpawn = vi.fn(() => ({ on: vi.fn(), unref: vi.fn() }));
 vi.mock('child_process', () => ({
   execSync: (...args: unknown[]) => mockExecSync(...args),
+  spawn: (...args: unknown[]) => mockSpawn(...(args as [])),
 }));
 
 import {
   CONTAINER_RUNTIME_BIN,
+  STOP_GRACE_SECONDS,
   readonlyMountArgs,
   stopContainer,
+  stopContainerAsync,
   ensureContainerRuntimeRunning,
   cleanupOrphans,
 } from './container-runtime.js';
@@ -43,9 +47,16 @@ describe('readonlyMountArgs', () => {
 describe('stopContainer', () => {
   it('calls docker stop for valid container names', () => {
     stopContainer('nanoclaw-test-123');
-    expect(mockExecSync).toHaveBeenCalledWith(`${CONTAINER_RUNTIME_BIN} stop -t 1 nanoclaw-test-123`, {
-      stdio: 'pipe',
-    });
+    expect(mockExecSync).toHaveBeenCalledWith(
+      `${CONTAINER_RUNTIME_BIN} stop -t ${STOP_GRACE_SECONDS} nanoclaw-test-123`,
+      { stdio: 'pipe' },
+    );
+  });
+
+  it('allows the agent-runner enough grace to close its session DBs', () => {
+    // A 1s grace period meant docker escalated to SIGKILL before the runner
+    // could finish closing outbound.db, leaving a hot rollback journal.
+    expect(STOP_GRACE_SECONDS).toBeGreaterThanOrEqual(10);
   });
 
   it('rejects names with shell metacharacters', () => {
@@ -53,6 +64,25 @@ describe('stopContainer', () => {
     expect(() => stopContainer('foo$(whoami)')).toThrow('Invalid container name');
     expect(() => stopContainer('foo`id`')).toThrow('Invalid container name');
     expect(mockExecSync).not.toHaveBeenCalled();
+  });
+});
+
+describe('stopContainerAsync', () => {
+  it('spawns docker stop without blocking on the result', () => {
+    stopContainerAsync('nanoclaw-test-123');
+    expect(mockSpawn).toHaveBeenCalledWith(
+      CONTAINER_RUNTIME_BIN,
+      ['stop', '-t', String(STOP_GRACE_SECONDS), 'nanoclaw-test-123'],
+      { stdio: 'ignore' },
+    );
+    // Must never go through the blocking path — the host event loop drives
+    // every channel adapter while the grace period elapses.
+    expect(mockExecSync).not.toHaveBeenCalled();
+  });
+
+  it('rejects names with shell metacharacters', () => {
+    expect(() => stopContainerAsync('foo; rm -rf /')).toThrow('Invalid container name');
+    expect(mockSpawn).not.toHaveBeenCalled();
   });
 });
 
@@ -104,18 +134,31 @@ describe('cleanupOrphans', () => {
 
     cleanupOrphans();
 
-    // ps + 2 stop calls
-    expect(mockExecSync).toHaveBeenCalledTimes(3);
-    expect(mockExecSync).toHaveBeenNthCalledWith(2, `${CONTAINER_RUNTIME_BIN} stop -t 1 nanoclaw-group1-111`, {
-      stdio: 'pipe',
-    });
-    expect(mockExecSync).toHaveBeenNthCalledWith(3, `${CONTAINER_RUNTIME_BIN} stop -t 1 nanoclaw-group2-222`, {
-      stdio: 'pipe',
-    });
+    // ps + ONE batched stop. Stopping serially would cost a full grace period
+    // per orphan and block the boot path (and every channel adapter) for it.
+    expect(mockExecSync).toHaveBeenCalledTimes(2);
+    expect(mockExecSync).toHaveBeenNthCalledWith(
+      2,
+      `${CONTAINER_RUNTIME_BIN} stop -t ${STOP_GRACE_SECONDS} nanoclaw-group1-111 nanoclaw-group2-222`,
+      { stdio: 'pipe' },
+    );
     expect(log.info).toHaveBeenCalledWith('Stopped orphaned containers', {
       count: 2,
       names: ['nanoclaw-group1-111', 'nanoclaw-group2-222'],
     });
+  });
+
+  it('refuses to batch names that failed validation', () => {
+    // Names come from `docker ps` output, which is interpolated into a shell
+    // string — every one must clear the allowlist before it gets there.
+    mockExecSync.mockReturnValueOnce('nanoclaw-ok-1\nevil; rm -rf /\n');
+    mockExecSync.mockReturnValue('');
+
+    cleanupOrphans();
+
+    // ps only — no stop issued for the batch containing the bad name.
+    expect(mockExecSync).toHaveBeenCalledTimes(1);
+    expect(log.warn).toHaveBeenCalled();
   });
 
   it('does nothing when no orphans exist', () => {
@@ -140,18 +183,18 @@ describe('cleanupOrphans', () => {
     );
   });
 
-  it('continues stopping remaining containers when one stop fails', () => {
+  it('survives a stop that exits non-zero', () => {
     mockExecSync.mockReturnValueOnce('nanoclaw-a-1\nnanoclaw-b-2\n');
-    // First stop fails
+    // `docker stop a b` exits non-zero if ANY name failed (e.g. already gone),
+    // having still attempted each container independently. Cleanup is best
+    // effort — a non-zero exit must not throw out of the boot path.
     mockExecSync.mockImplementationOnce(() => {
-      throw new Error('already stopped');
+      throw new Error('No such container: nanoclaw-a-1');
     });
-    // Second stop succeeds
-    mockExecSync.mockReturnValueOnce('');
 
     cleanupOrphans(); // should not throw
 
-    expect(mockExecSync).toHaveBeenCalledTimes(3);
+    expect(mockExecSync).toHaveBeenCalledTimes(2);
     expect(log.info).toHaveBeenCalledWith('Stopped orphaned containers', {
       count: 2,
       names: ['nanoclaw-a-1', 'nanoclaw-b-2'],

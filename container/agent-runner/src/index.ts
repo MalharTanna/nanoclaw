@@ -27,6 +27,7 @@ import { fileURLToPath } from 'url';
 
 import { loadConfig } from './config.js';
 import { buildSystemPromptAddendum } from './destinations.js';
+import { closeDbs } from './db/connection.js';
 import { getTaskSeriesId } from './db/session-routing.js';
 import { ensureMemoryScaffold } from './memory/scaffold.js';
 import { MEMORY_SESSION_HOOK } from './memory/session-hook.js';
@@ -115,7 +116,30 @@ async function main(): Promise<void> {
   });
 }
 
+/**
+ * Graceful shutdown.
+ *
+ * The host reaps idle containers via `docker stop`, which sends SIGTERM and
+ * only escalates to SIGKILL after a grace period (STOP_GRACE_SECONDS in
+ * src/container-runtime.ts). Without a handler here Bun terminates on the
+ * default disposition with the session DBs still open, so every reap landed as
+ * exit 137 and could leave a hot rollback journal on outbound.db. Closing the
+ * handles is all that is required — the poll loop holds no other state the
+ * host cannot reconstruct on the next spawn.
+ */
+let shuttingDown = false;
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.on(signal, () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log(`Received ${signal} — closing session DBs and exiting`);
+    closeDbs();
+    process.exit(0);
+  });
+}
+
 main().catch((err) => {
   log(`Fatal error: ${err instanceof Error ? err.message : String(err)}`);
+  closeDbs();
   process.exit(1);
 });

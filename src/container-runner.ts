@@ -25,7 +25,7 @@ import {
 import { materializeContainerJson } from './container-config.js';
 import { getContainerConfig } from './db/container-configs.js';
 import { updateContainerConfigScalars } from './db/container-configs.js';
-import { CONTAINER_RUNTIME_BIN, hostGatewayArgs, readonlyMountArgs, stopContainer } from './container-runtime.js';
+import { CONTAINER_RUNTIME_BIN, hostGatewayArgs, readonlyMountArgs, stopContainerAsync } from './container-runtime.js';
 import { EGRESS_NETWORK, egressNetworkArgs, ensureEgressNetwork } from './egress-lockdown.js';
 import { composeGroupClaudeMd } from './claude-md-compose.js';
 import { getAgentGroup } from './db/agent-groups.js';
@@ -222,11 +222,18 @@ export function killContainer(sessionId: string, reason: string, onExit?: () => 
   }
 
   log.info('Killing container', { sessionId, reason, containerName: entry.containerName });
-  try {
-    stopContainer(entry.containerName);
-  } catch {
+  // Async on purpose: the runtime stop carries a multi-second grace period so
+  // the agent-runner can close its session DBs, and blocking the host for that
+  // window would stall every channel adapter. Exit is observed via the child
+  // process 'close' event (see the onExit hook above), not by waiting here.
+  stopContainerAsync(entry.containerName, (err) => {
+    log.warn('Container stop could not be launched — forcing SIGKILL', {
+      sessionId,
+      containerName: entry.containerName,
+      err,
+    });
     entry.process.kill('SIGKILL');
-  }
+  });
 }
 
 /**
