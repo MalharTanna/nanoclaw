@@ -495,7 +495,7 @@ export async function processQuery(
         // Claude session with no prior context.
         setContinuation(providerName, event.continuation);
       } else if (event.type === 'interim') {
-        // Mid-turn <message> text (written before a later tool call) — deliver
+        // Mid-turn <message> text (written before a later tool call) - deliver
         // it now; the turn's final text still arrives as `result`.
         dispatchResultText(event.text, routing);
       } else if (event.type === 'result') {

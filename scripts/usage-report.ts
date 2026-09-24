@@ -1,5 +1,5 @@
 /**
- * scripts/usage-report.ts — per-turn token usage from session outbound DBs.
+ * scripts/usage-report.ts - per-turn token usage from session outbound DBs.
  *
  * Usage:
  *   pnpm exec tsx scripts/usage-report.ts [--days 30] [--json]

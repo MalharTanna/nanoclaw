@@ -2,7 +2,13 @@ import fs from 'fs';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { replyPrefixMode, withGroupPrefix } from './reply-prefix.js';
+import {
+  plainDashesEnabled,
+  replyPrefixMode,
+  toPlainDashes,
+  withGroupPrefix,
+  withPlainDashes,
+} from './reply-prefix.js';
 
 describe('withGroupPrefix', () => {
   const chat = (c: object) => JSON.stringify(c);
@@ -56,9 +62,42 @@ describe('delivery wiring (structural)', () => {
     const src = fs.readFileSync(path.join(process.cwd(), 'src', 'delivery.ts'), 'utf-8');
     expect(src).toContain("replyPrefixMode() === 'group'");
     expect(src).toContain('getContainerConfig(session.agent_group_id)?.assistant_name');
-    const prefix = src.indexOf('const outContent =');
+    expect(src).toContain('plainDashesEnabled() ? withPlainDashes(msg.kind, msg.content)');
+    const prefix = src.indexOf('let outContent =');
     const deliver = src.indexOf('await deliveryAdapter.deliver(', prefix);
     expect(prefix).toBeGreaterThan(-1);
     expect(src.slice(deliver, deliver + 200)).toContain('outContent');
+  });
+});
+
+describe('plain dashes', () => {
+  it('turns long dashes into hyphens, keeping word spacing and ranges tight', () => {
+    expect(toPlainDashes('Ahmedabad \u2014 Gujarat')).toBe('Ahmedabad - Gujarat');
+    expect(toPlainDashes('Ahmedabad\u2014Gujarat')).toBe('Ahmedabad-Gujarat');
+    expect(toPlainDashes('10\u201312 people')).toBe('10-12 people');
+    expect(toPlainDashes('no dashes here - ok')).toBe('no dashes here - ok');
+  });
+
+  it('rewrites text, card titles and questions only for chat kinds', () => {
+    const card = JSON.stringify({
+      type: 'ask_question',
+      title: 'Pick \u2014 one',
+      question: 'A\u2013B?',
+      options: ['x'],
+    });
+    expect(JSON.parse(withPlainDashes('chat-sdk', card))).toMatchObject({ title: 'Pick - one', question: 'A-B?' });
+    expect(JSON.parse(withPlainDashes('chat', JSON.stringify({ text: 'Hi \u2014 there' }))).text).toBe('Hi - there');
+    const sys = JSON.stringify({ text: 'a\u2014b' });
+    expect(withPlainDashes('system', sys)).toBe(sys);
+  });
+
+  it('is off unless NANOCLAW_PLAIN_DASHES=true', () => {
+    const orig = process.env.NANOCLAW_PLAIN_DASHES;
+    process.env.NANOCLAW_PLAIN_DASHES = 'true';
+    expect(plainDashesEnabled()).toBe(true);
+    process.env.NANOCLAW_PLAIN_DASHES = '1';
+    expect(plainDashesEnabled()).toBe(false);
+    if (orig === undefined) delete process.env.NANOCLAW_PLAIN_DASHES;
+    else process.env.NANOCLAW_PLAIN_DASHES = orig;
   });
 });

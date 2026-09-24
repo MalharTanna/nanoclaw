@@ -122,7 +122,7 @@ export interface AgentQuery {
 
 /**
  * Token usage for one completed turn (all API calls made to answer it).
- * Optional — providers that can't report usage omit it.
+ * Optional - providers that can't report usage omit it.
  */
 export interface TurnUsage {
   model: string | null;

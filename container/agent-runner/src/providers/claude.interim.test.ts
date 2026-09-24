@@ -20,7 +20,7 @@ describe('InterimTextBuffer', () => {
     ]);
   });
 
-  test('drops pending text at result — that text is the final result', () => {
+  test('drops pending text at result - that text is the final result', () => {
     const b = new InterimTextBuffer();
     b.onAssistant(assistant(text('<message to="g">final</message>')));
     b.onResult();

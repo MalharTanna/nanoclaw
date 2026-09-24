@@ -260,7 +260,7 @@ describe('groups config add-mount / remove-mount (host-only)', () => {
   });
 });
 
-describe('groups config update — per-group context tuning', () => {
+describe('groups config update - per-group context tuning', () => {
   const GID = 'ag-tune';
 
   beforeEach(() => {

@@ -46,7 +46,7 @@ describe('recordTurnUsage', () => {
     expect(n.n).toBe(1);
   });
 
-  test('never throws — reports failure through the logger', () => {
+  test('never throws - reports failure through the logger', () => {
     getOutboundDb().exec('DROP TABLE IF EXISTS usage_log');
     getOutboundDb().exec('CREATE TABLE usage_log (id INTEGER PRIMARY KEY)'); // incompatible shape
     _resetUsageLogForTest();

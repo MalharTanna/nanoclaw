@@ -436,7 +436,7 @@ function transcriptStartMs(transcriptPath: string): number | null {
 }
 
 /**
- * Pull token usage off an SDK `result` message. Numbers only — never text.
+ * Pull token usage off an SDK `result` message. Numbers only - never text.
  * Returns undefined when the message carries no usage block.
  *
  * `usage` and `num_turns` are per turn, but `total_cost_usd` accumulates over
@@ -468,7 +468,7 @@ export function extractTurnUsage(message: unknown, priorQueryCostUsd = 0): TurnU
     apiCalls: num(m.num_turns),
     costUsd:
       typeof m.total_cost_usd === 'number'
-        ? // A total below what we've seen means a fresh query — take it whole.
+        ? // A total below what we've seen means a fresh query - take it whole.
           m.total_cost_usd >= priorQueryCostUsd
           ? m.total_cost_usd - priorQueryCostUsd
           : m.total_cost_usd
@@ -481,7 +481,7 @@ export function extractTurnUsage(message: unknown, priorQueryCostUsd = 0): TurnU
  * Holds `<message>`-bearing assistant text until the turn shows it was not
  * the final text. The SDK's `result` carries only the last assistant text, so
  * text followed by a later tool_use is mid-turn and must be delivered on its
- * own. Subagent (Task) output is ignored — it never goes to the user.
+ * own. Subagent (Task) output is ignored - it never goes to the user.
  */
 export class InterimTextBuffer {
   private pending: string[] = [];
@@ -507,7 +507,7 @@ export class InterimTextBuffer {
     return ready;
   }
 
-  /** Turn ended — anything still pending is the result's own text. */
+  /** Turn ended - anything still pending is the result's own text. */
   onResult(): void {
     this.pending = [];
   }
@@ -641,7 +641,7 @@ export class ClaudeProvider implements AgentProvider {
 
     async function* translateEvents(): AsyncGenerator<ProviderEvent> {
       let messageCount = 0;
-      // Running SDK total_cost_usd for this query — see extractTurnUsage.
+      // Running SDK total_cost_usd for this query - see extractTurnUsage.
       let queryCostUsd = 0;
       const interim = new InterimTextBuffer();
       for await (const message of sdkResult) {

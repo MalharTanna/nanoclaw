@@ -215,7 +215,7 @@ async function sweepSession(session: Session): Promise<void> {
     if (dueCount > 0 && !isContainerRunning(session.id) && isQuotaBlocked(session.agent_group_id)) {
       // Plan limit reached: due work (scheduled tasks, retries) stays pending
       // and runs once the control plane lifts the block.
-      log.debug('Quota reached — not waking container for due messages', { sessionId: session.id, count: dueCount });
+      log.debug('Quota reached - not waking container for due messages', { sessionId: session.id, count: dueCount });
     } else if (dueCount > 0 && !isContainerRunning(session.id)) {
       log.info('Waking container for due messages', { sessionId: session.id, count: dueCount });
       // wakeContainer never throws — transient spawn failures (OneCLI down,

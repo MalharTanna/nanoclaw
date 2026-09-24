@@ -514,7 +514,7 @@ async function deliverToAgent(
   // export) but don't wake the agent, and tell the owner once per period.
   if (wake && isQuotaBlocked(agent.agent_group_id)) {
     wake = false;
-    log.info('Quota reached — message stored without waking agent', {
+    log.info('Quota reached - message stored without waking agent', {
       sessionId: session.id,
       agentGroup: agent.agent_group_id,
     });

@@ -4,7 +4,7 @@
  * One row per completed agent turn in outbound.db `usage_log`. The container
  * is the sole writer of outbound.db, so this keeps the single-writer rule; the
  * host (and later the SaaS node-agent) reads it read-only for metering.
- * Numbers only — no message text is ever stored here.
+ * Numbers only - no message text is ever stored here.
  */
 import type { TurnUsage } from '../providers/types.js';
 import { getOutboundDb } from './connection.js';
@@ -36,7 +36,7 @@ export function recordTurnUsage(usage: TurnUsage, kind: 'chat' | 'task', onError
   try {
     const db = getOutboundDb();
     if (!tableReady) {
-      // Older session DBs predate the table — create it lazily.
+      // Older session DBs predate the table - create it lazily.
       db.exec(USAGE_LOG_DDL);
       tableReady = true;
     }

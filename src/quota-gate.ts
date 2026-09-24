@@ -1,12 +1,12 @@
 /**
- * Quota gate — stops the agent from being woken once a plan limit is reached,
+ * Quota gate - stops the agent from being woken once a plan limit is reached,
  * so no API spend happens past 100%.
  *
  * The state is decided outside the engine (SaaS control plane → node-agent),
  * which owns each customer's cap. Two scopes:
  *
- *   data/quota/<agentGroupId>.json  — one tenant's bot (shared-number installs)
- *   data/quota.json                 — the whole install (dedicated installs)
+ *   data/quota/<agentGroupId>.json  - one tenant's bot (shared-number installs)
+ *   data/quota.json                 - the whole install (dedicated installs)
  *
  *   { "state": "ok" | "warn" | "blocked", "period_end": "<ISO-8601 UTC>" }
  *
@@ -15,7 +15,7 @@
  *
  * When blocked, inbound messages are still stored (trigger=0, "context only")
  * so history and legal export stay complete; the container is simply not
- * woken. The owner gets one "limit reached" DM per period — never the
+ * woken. The owner gets one "limit reached" DM per period - never the
  * customers in the chat. For a per-group block that means ONLY that tenant's
  * scoped admins (never the install's global owner, who may be another
  * business entirely on a shared number). The host records the notice in its
@@ -64,18 +64,18 @@ function parseState(raw: string, scope: QuotaState['scope']): QuotaState {
     const parsed = JSON.parse(raw) as { state?: unknown; period_end?: unknown };
     const state = parsed.state;
     if (state !== 'ok' && state !== 'warn' && state !== 'blocked') {
-      log.warn('Quota file has an unknown state — treating as ok', { scope, state: String(state) });
+      log.warn('Quota file has an unknown state - treating as ok', { scope, state: String(state) });
       return { state: 'ok', periodEnd: null, scope };
     }
     const periodEnd = typeof parsed.period_end === 'string' ? parsed.period_end : null;
     // A block whose period has already ended is stale (the control plane
-    // missed the rollover) — fail open rather than stay silent forever.
+    // missed the rollover) - fail open rather than stay silent forever.
     if (state === 'blocked' && periodEnd && Date.parse(periodEnd) <= Date.now()) {
       return { state: 'ok', periodEnd, scope };
     }
     return { state, periodEnd, scope };
   } catch {
-    log.warn('Quota file is not valid JSON — treating as ok', { scope });
+    log.warn('Quota file is not valid JSON - treating as ok', { scope });
     return { state: 'ok', periodEnd: null, scope };
   }
 }
@@ -86,7 +86,7 @@ export function readQuotaState(agentGroupId?: string | null, dataDir: string = D
     try {
       return parseState(fs.readFileSync(quotaFilePath(dataDir, agentGroupId), 'utf-8'), 'group');
     } catch {
-      // No per-group file — fall through to the install-wide state.
+      // No per-group file - fall through to the install-wide state.
     }
   }
   try {

@@ -266,7 +266,7 @@ CREATE TABLE IF NOT EXISTS session_state (
 -- declared timeout > 60s (long-running scripts shouldn't be flagged as stuck).
 -- Per-turn token usage for metering. One row per completed agent turn;
 -- numbers only, never message text. Container writes (lazily creates it on
--- older DBs — container/agent-runner/src/db/usage-log.ts), host reads.
+-- older DBs - container/agent-runner/src/db/usage-log.ts), host reads.
 CREATE TABLE IF NOT EXISTS usage_log (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
   ts                 TEXT NOT NULL,

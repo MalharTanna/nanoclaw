@@ -48,7 +48,7 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe('readQuotaState — install scope', () => {
+describe('readQuotaState - install scope', () => {
   it('fails open when the file is missing', () => {
     expect(readQuotaState(null, dir)).toEqual({ state: 'ok', periodEnd: null, scope: 'install' });
     expect(isQuotaBlocked(null, dir)).toBe(false);
@@ -80,7 +80,7 @@ describe('readQuotaState — install scope', () => {
   });
 });
 
-describe('readQuotaState — per agent group (shared-number tenants)', () => {
+describe('readQuotaState - per agent group (shared-number tenants)', () => {
   it('a tenant block affects only that tenant', () => {
     writeQuota({ state: 'blocked', period_end: future() }, 'ag-tenant-a');
     expect(isQuotaBlocked('ag-tenant-a', dir)).toBe(true);
@@ -97,7 +97,7 @@ describe('readQuotaState — per agent group (shared-number tenants)', () => {
 
   it('refuses path-traversal agent group ids', () => {
     expect(() => quotaFilePath(dir, '../../etc/passwd')).toThrow();
-    // Reading with a bad id never throws — it just falls back to the install.
+    // Reading with a bad id never throws - it just falls back to the install.
     expect(readQuotaState('../x', dir)).toMatchObject({ scope: 'install', state: 'ok' });
   });
 });

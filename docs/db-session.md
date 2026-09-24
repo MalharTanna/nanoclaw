@@ -219,7 +219,7 @@ CREATE TABLE usage_log (
 );
 ```
 
-**Writer (container):** `recordTurnUsage()` in `container/agent-runner/src/db/usage-log.ts`, called from the poll-loop on each `result` event. Creates the table lazily on session DBs that predate it. Best-effort — a failed write never affects the reply.
+**Writer (container):** `recordTurnUsage()` in `container/agent-runner/src/db/usage-log.ts`, called from the poll-loop on each `result` event. Creates the table lazily on session DBs that predate it. Best-effort - a failed write never affects the reply.
 **Reader (host):** `buildUsageReport()` in `src/usage-report.ts`; CLI: `pnpm exec tsx scripts/usage-report.ts [--days N] [--json]`.
 
 ## 5. Schema evolution

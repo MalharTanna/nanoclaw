@@ -1,5 +1,5 @@
 /**
- * Usage report — aggregates the per-turn `usage_log` rows the agent-runner
+ * Usage report - aggregates the per-turn `usage_log` rows the agent-runner
  * writes into each session's outbound.db. Read-only; numbers only.
  *
  * Consumed by scripts/usage-report.ts today and by the SaaS node-agent later
