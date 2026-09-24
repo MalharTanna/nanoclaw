@@ -46,6 +46,7 @@ import {
 import { log } from './log.js';
 import { openInboundDb, openOutboundDb, openOutboundDbRw, inboundDbPath, heartbeatPath } from './session-manager.js';
 import { isContainerRunning, killContainer, wakeContainer } from './container-runner.js';
+import { isQuotaBlocked } from './quota-gate.js';
 import type { Session } from './types.js';
 
 /**
@@ -211,7 +212,11 @@ async function sweepSession(session: Session): Promise<void> {
     // and the wake would never fire.
     const dueCount = countDueMessages(inDb);
     let justWoke = false;
-    if (dueCount > 0 && !isContainerRunning(session.id)) {
+    if (dueCount > 0 && !isContainerRunning(session.id) && isQuotaBlocked()) {
+      // Plan limit reached: due work (scheduled tasks, retries) stays pending
+      // and runs once the control plane lifts the block.
+      log.debug('Quota reached — not waking container for due messages', { sessionId: session.id, count: dueCount });
+    } else if (dueCount > 0 && !isContainerRunning(session.id)) {
       log.info('Waking container for due messages', { sessionId: session.id, count: dueCount });
       // wakeContainer never throws — transient spawn failures (OneCLI down,
       // etc.) return false and leave messages pending for the next tick.

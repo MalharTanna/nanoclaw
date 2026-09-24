@@ -32,6 +32,7 @@ import { startTypingRefresh, stopTypingRefresh } from './modules/typing/index.js
 import { log } from './log.js';
 import { resolveSession, writeSessionMessage, writeOutboundDirect } from './session-manager.js';
 import { wakeContainer } from './container-runner.js';
+import { isQuotaBlocked, notifyOwnerQuotaReached } from './quota-gate.js';
 import { getSession } from './db/sessions.js';
 import type { AgentGroup, MessagingGroup, MessagingGroupAgent } from './types.js';
 import type { InboundEvent } from './channels/adapter.js';
@@ -502,6 +503,17 @@ async function deliverToAgent(
       log.info('Admin command denied by gate', { command: gate.command, userId, agentGroupId: agent.agent_group_id });
       return;
     }
+  }
+
+  // Quota gate: past the plan limit, keep the message (history + legal
+  // export) but don't wake the agent, and tell the owner once per period.
+  if (wake && isQuotaBlocked()) {
+    wake = false;
+    log.info('Quota reached — message stored without waking agent', {
+      sessionId: session.id,
+      agentGroup: agent.agent_group_id,
+    });
+    void notifyOwnerQuotaReached(agent.agent_group_id, event.channelType);
   }
 
   writeSessionMessage(session.agent_group_id, session.id, {
