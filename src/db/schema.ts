@@ -264,6 +264,23 @@ CREATE TABLE IF NOT EXISTS session_state (
 -- PreToolUse and clears on PostToolUse / PostToolUseFailure. Host reads in the
 -- sweep to extend the stuck-tolerance window when Bash is running with a
 -- declared timeout > 60s (long-running scripts shouldn't be flagged as stuck).
+-- Per-turn token usage for metering. One row per completed agent turn;
+-- numbers only, never message text. Container writes (lazily creates it on
+-- older DBs — container/agent-runner/src/db/usage-log.ts), host reads.
+CREATE TABLE IF NOT EXISTS usage_log (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts                 TEXT NOT NULL,
+  kind               TEXT NOT NULL,
+  model              TEXT,
+  input_tokens       INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+  output_tokens      INTEGER NOT NULL DEFAULT 0,
+  api_calls          INTEGER NOT NULL DEFAULT 0,
+  cost_usd           REAL,
+  duration_ms        INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS container_state (
   id                       INTEGER PRIMARY KEY CHECK (id = 1),
   current_tool             TEXT,

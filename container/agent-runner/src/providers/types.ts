@@ -120,6 +120,23 @@ export interface AgentQuery {
   abort(): void;
 }
 
+/**
+ * Token usage for one completed turn (all API calls made to answer it).
+ * Optional — providers that can't report usage omit it.
+ */
+export interface TurnUsage {
+  model: string | null;
+  inputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  outputTokens: number;
+  /** API round-trips in the turn (SDK `num_turns`). */
+  apiCalls: number;
+  /** Provider's own cost estimate at list price, if reported. */
+  costUsd: number | null;
+  durationMs: number | null;
+}
+
 export type ProviderEvent =
   | { type: 'init'; continuation: string }
   /**
@@ -128,7 +145,7 @@ export type ProviderEvent =
    * poll-loop uses it to surface the result text to the user instead of
    * dropping it as un-wrapped scratchpad, and to skip the re-wrap nudge.
    */
-  | { type: 'result'; text: string | null; isError?: boolean }
+  | { type: 'result'; text: string | null; isError?: boolean; usage?: TurnUsage }
   | { type: 'error'; message: string; retryable: boolean; classification?: string }
   | { type: 'progress'; message: string }
   /**

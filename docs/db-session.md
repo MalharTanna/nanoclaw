@@ -199,6 +199,29 @@ CREATE TABLE container_state (
 
 ---
 
+### 4.5 `usage_log`
+
+Per-turn token usage for metering and plan limits. One row per completed agent turn; numbers only, never message text.
+
+```sql
+CREATE TABLE usage_log (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts                 TEXT NOT NULL,          -- ISO-8601 UTC
+  kind               TEXT NOT NULL,          -- chat | task
+  model              TEXT,                   -- from SDK modelUsage keys
+  input_tokens       INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
+  output_tokens      INTEGER NOT NULL DEFAULT 0,
+  api_calls          INTEGER NOT NULL DEFAULT 0, -- SDK num_turns
+  cost_usd           REAL,                   -- SDK list-price estimate
+  duration_ms        INTEGER
+);
+```
+
+**Writer (container):** `recordTurnUsage()` in `container/agent-runner/src/db/usage-log.ts`, called from the poll-loop on each `result` event. Creates the table lazily on session DBs that predate it. Best-effort — a failed write never affects the reply.
+**Reader (host):** `buildUsageReport()` in `src/usage-report.ts`; CLI: `pnpm exec tsx scripts/usage-report.ts [--days N] [--json]`.
+
 ## 5. Schema evolution
 
 Unlike the central DB, session DBs do **not** go through numbered migrations. Both `INBOUND_SCHEMA` and `OUTBOUND_SCHEMA` use `CREATE TABLE IF NOT EXISTS`, so a fresh session always gets the current shape. For session folders created under older builds, column-level gaps are patched lazily on open — e.g. `migrateDeliveredTable()` in `src/db/session-db.ts` adds `platform_message_id` and `status` to the `delivered` table if missing.

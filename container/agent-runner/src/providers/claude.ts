@@ -15,6 +15,7 @@ import type {
   ProviderEvent,
   ProviderOptions,
   QueryInput,
+  TurnUsage,
 } from './types.js';
 
 function log(msg: string): void {
@@ -434,6 +435,38 @@ function transcriptStartMs(transcriptPath: string): number | null {
   }
 }
 
+/**
+ * Pull token usage off an SDK `result` message. Numbers only — never text.
+ * Returns undefined when the message carries no usage block.
+ */
+export function extractTurnUsage(message: unknown): TurnUsage | undefined {
+  const m = message as {
+    usage?: {
+      input_tokens?: number;
+      cache_creation_input_tokens?: number;
+      cache_read_input_tokens?: number;
+      output_tokens?: number;
+    };
+    modelUsage?: Record<string, unknown>;
+    num_turns?: number;
+    total_cost_usd?: number;
+    duration_ms?: number;
+  };
+  if (!m || typeof m !== 'object' || !m.usage) return undefined;
+  const models = m.modelUsage ? Object.keys(m.modelUsage) : [];
+  const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  return {
+    model: models.length > 0 ? models.join(',') : null,
+    inputTokens: num(m.usage.input_tokens),
+    cacheWriteTokens: num(m.usage.cache_creation_input_tokens),
+    cacheReadTokens: num(m.usage.cache_read_input_tokens),
+    outputTokens: num(m.usage.output_tokens),
+    apiCalls: num(m.num_turns),
+    costUsd: typeof m.total_cost_usd === 'number' ? m.total_cost_usd : null,
+    durationMs: typeof m.duration_ms === 'number' ? m.duration_ms : null,
+  };
+}
+
 // ── Provider ──
 
 /**
@@ -578,7 +611,7 @@ export class ClaudeProvider implements AgentProvider {
           // billing/quota notice to the user rather than dropping the turn.
           const m = message as { result?: string; is_error?: boolean; errors?: string[] };
           const text = m.result ?? (m.errors && m.errors.length > 0 ? m.errors.join('\n') : null);
-          yield { type: 'result', text, isError: m.is_error === true };
+          yield { type: 'result', text, isError: m.is_error === true, usage: extractTurnUsage(message) };
         } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'api_retry') {
           yield { type: 'error', message: 'API retry', retryable: true };
         } else if (message.type === 'rate_limit_event') {
