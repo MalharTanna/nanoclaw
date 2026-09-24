@@ -27,6 +27,7 @@ import { getContainerConfig } from './db/container-configs.js';
 import { updateContainerConfigScalars } from './db/container-configs.js';
 import { CONTAINER_RUNTIME_BIN, hostGatewayArgs, readonlyMountArgs, stopContainerAsync } from './container-runtime.js';
 import { EGRESS_NETWORK, egressNetworkArgs, ensureEgressNetwork } from './egress-lockdown.js';
+import { readEnvFile } from './env.js';
 import { composeGroupClaudeMd } from './claude-md-compose.js';
 import { getAgentGroup } from './db/agent-groups.js';
 import { getDb, hasTable } from './db/connection.js';
@@ -438,6 +439,38 @@ function selectedSkillNames(containerConfig: import('./container-config.js').Con
     : [];
 }
 
+/**
+ * Context-tuning env vars the agent-runner's Claude provider reads
+ * (container/agent-runner/src/providers/claude.ts). Unset = runner defaults.
+ */
+export const AGENT_TUNING_ENV_KEYS = [
+  'CLAUDE_CODE_AUTO_COMPACT_WINDOW',
+  'CLAUDE_TRANSCRIPT_ROTATE_BYTES',
+  'CLAUDE_TRANSCRIPT_ROTATE_AGE_DAYS',
+] as const;
+
+/**
+ * `-e KEY=VALUE` args for each tuning knob that is set. process.env wins over
+ * .env (same precedence as src/config.ts). Values must be plain numbers; any
+ * other value is dropped with a warning rather than passed to the container.
+ */
+export function agentTuningEnvArgs(
+  dotenv: Record<string, string> = readEnvFile([...AGENT_TUNING_ENV_KEYS]),
+  procEnv: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const args: string[] = [];
+  for (const key of AGENT_TUNING_ENV_KEYS) {
+    const value = (procEnv[key] || dotenv[key] || '').trim();
+    if (!value) continue;
+    if (!/^-?\d+(\.\d+)?$/.test(value)) {
+      log.warn('Ignoring non-numeric agent tuning value', { key });
+      continue;
+    }
+    args.push('-e', `${key}=${value}`);
+  }
+  return args;
+}
+
 async function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
@@ -459,6 +492,11 @@ async function buildContainerArgs(
   // Environment — only vars read by code we don't own.
   // Everything NanoClaw-specific is in container.json (read by runner at startup).
   args.push('-e', `TZ=${TIMEZONE}`);
+
+  // Agent context-tuning knobs (compaction window, transcript rotation). The
+  // agent-runner reads these from its own process.env; re-read from .env on
+  // every spawn so an operator edit applies to the next container, no restart.
+  args.push(...agentTuningEnvArgs());
 
   // Provider-contributed env vars (e.g. XDG_DATA_HOME, OPENCODE_*, NO_PROXY).
   if (providerContribution.env) {

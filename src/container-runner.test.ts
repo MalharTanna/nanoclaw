@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
 
-import { resolveProviderName } from './container-runner.js';
+import { agentTuningEnvArgs, resolveProviderName } from './container-runner.js';
 
 describe('resolveProviderName', () => {
   it('prefers session over container config', () => {
@@ -112,5 +112,39 @@ describe('syncSkillSymlinks blocked-entry warning (structural)', () => {
     const tail = src.slice(createLoop);
     expect(tail).toMatch(/else if \(!entry\.isSymbolicLink\(\)\)/);
     expect(tail).toMatch(/log\.warn\(\s*'Shared skill not symlinked/);
+  });
+});
+
+describe('agentTuningEnvArgs', () => {
+  it('emits nothing when no knob is set', () => {
+    expect(agentTuningEnvArgs({}, {})).toEqual([]);
+  });
+
+  it('passes each set knob as -e KEY=VALUE', () => {
+    expect(
+      agentTuningEnvArgs({ CLAUDE_CODE_AUTO_COMPACT_WINDOW: '60000', CLAUDE_TRANSCRIPT_ROTATE_AGE_DAYS: '3' }, {}),
+    ).toEqual(['-e', 'CLAUDE_CODE_AUTO_COMPACT_WINDOW=60000', '-e', 'CLAUDE_TRANSCRIPT_ROTATE_AGE_DAYS=3']);
+  });
+
+  it('prefers process.env over .env', () => {
+    expect(
+      agentTuningEnvArgs({ CLAUDE_TRANSCRIPT_ROTATE_BYTES: '100' }, { CLAUDE_TRANSCRIPT_ROTATE_BYTES: '200' }),
+    ).toEqual(['-e', 'CLAUDE_TRANSCRIPT_ROTATE_BYTES=200']);
+  });
+
+  it('drops non-numeric values', () => {
+    expect(agentTuningEnvArgs({ CLAUDE_CODE_AUTO_COMPACT_WINDOW: '60000; rm -rf /' }, {})).toEqual([]);
+  });
+
+  it('accepts a non-positive age (disables the age check in the runner)', () => {
+    expect(agentTuningEnvArgs({ CLAUDE_TRANSCRIPT_ROTATE_AGE_DAYS: '0' }, {})).toEqual([
+      '-e',
+      'CLAUDE_TRANSCRIPT_ROTATE_AGE_DAYS=0',
+    ]);
+  });
+
+  it('is wired into buildContainerArgs (structural)', () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'src', 'container-runner.ts'), 'utf-8');
+    expect(src).toContain('args.push(...agentTuningEnvArgs());');
   });
 });
