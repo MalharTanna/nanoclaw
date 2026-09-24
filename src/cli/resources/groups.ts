@@ -18,6 +18,18 @@ import type { AgentGroup, ContainerConfigRow } from '../../types.js';
 import { registerResource } from '../crud.js';
 
 /** Deserialize JSON columns for display. */
+/**
+ * Parse a context-tuning flag. "inherit" (or an empty value) clears it to NULL
+ * so the group follows the install default again.
+ */
+function parseTuning(raw: unknown, flag: string, min: number): number | null {
+  const text = String(raw).trim().toLowerCase();
+  if (text === '' || text === 'inherit') return null;
+  const n = Number(text);
+  if (!Number.isFinite(n) || n < min) throw new Error(`${flag} must be a number >= ${min}, or "inherit"`);
+  return n;
+}
+
 function presentConfig(row: ContainerConfigRow): Record<string, unknown> {
   return {
     agent_group_id: row.agent_group_id,
@@ -33,6 +45,8 @@ function presentConfig(row: ContainerConfigRow): Record<string, unknown> {
     packages_npm: JSON.parse(row.packages_npm),
     additional_mounts: JSON.parse(row.additional_mounts),
     cli_scope: row.cli_scope,
+    compact_window: row.compact_window,
+    rotate_age_days: row.rotate_age_days,
     updated_at: row.updated_at,
   };
 }
@@ -256,7 +270,9 @@ registerResource({
       access: 'approval',
       description:
         'Update container config scalar fields. Changes are saved but do NOT take effect until you run `ncl groups restart`. ' +
-        'Use --id <group-id> and any of: --provider, --model, --effort, --image-tag, --assistant-name, --max-messages-per-prompt, --cli-scope.',
+        'Use --id <group-id> and any of: --provider, --model, --effort, --image-tag, --assistant-name, --max-messages-per-prompt, --cli-scope, ' +
+        '--compact-window <tokens> (auto-compact threshold), --rotate-age-days <days> (start a fresh session after this age; 0 disables). ' +
+        'Pass "inherit" to either tuning flag to clear it back to the install default.',
       handler: async (args) => {
         const id = args.id as string;
         if (!id) throw new Error('--id is required');
@@ -266,7 +282,15 @@ registerResource({
         const updates: Partial<
           Pick<
             ContainerConfigRow,
-            'provider' | 'model' | 'effort' | 'image_tag' | 'assistant_name' | 'max_messages_per_prompt' | 'cli_scope'
+            | 'provider'
+            | 'model'
+            | 'effort'
+            | 'image_tag'
+            | 'assistant_name'
+            | 'max_messages_per_prompt'
+            | 'cli_scope'
+            | 'compact_window'
+            | 'rotate_age_days'
           >
         > = {};
         if (args.provider !== undefined) updates.provider = args.provider as string;
@@ -283,10 +307,14 @@ registerResource({
           }
           updates.cli_scope = scope;
         }
+        const compact = args['compact-window'] ?? args.compact_window;
+        if (compact !== undefined) updates.compact_window = parseTuning(compact, '--compact-window', 10_000);
+        const rotate = args['rotate-age-days'] ?? args.rotate_age_days;
+        if (rotate !== undefined) updates.rotate_age_days = parseTuning(rotate, '--rotate-age-days', 0);
 
         if (Object.keys(updates).length === 0) {
           throw new Error(
-            'Nothing to update — provide at least one of: --provider, --model, --effort, --image-tag, --assistant-name, --max-messages-per-prompt, --cli-scope',
+            'Nothing to update — provide at least one of: --provider, --model, --effort, --image-tag, --assistant-name, --max-messages-per-prompt, --cli-scope, --compact-window, --rotate-age-days',
           );
         }
 

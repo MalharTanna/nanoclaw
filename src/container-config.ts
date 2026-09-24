@@ -43,6 +43,10 @@ export interface ContainerConfig {
   maxMessagesPerPrompt?: number;
   model?: string;
   effort?: string;
+  /** Per-group auto-compact threshold (tokens). Unset = inherit. */
+  compactWindow?: number;
+  /** Per-group session rotation age (days). Unset = inherit. */
+  rotateAgeDays?: number;
 }
 
 /** Build a `ContainerConfig` from a DB row + agent group identity. */
@@ -63,6 +67,8 @@ export function configFromDb(row: ContainerConfigRow, group: AgentGroup): Contai
     maxMessagesPerPrompt: row.max_messages_per_prompt ?? undefined,
     model: row.model ?? undefined,
     effort: row.effort ?? undefined,
+    compactWindow: row.compact_window ?? undefined,
+    rotateAgeDays: row.rotate_age_days ?? undefined,
   };
 }
 

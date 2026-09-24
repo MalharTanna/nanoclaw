@@ -143,8 +143,30 @@ describe('agentTuningEnvArgs', () => {
     ]);
   });
 
-  it('is wired into buildContainerArgs (structural)', () => {
+  it('per-group values win over process.env and .env', () => {
+    expect(
+      agentTuningEnvArgs(
+        { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '165000' },
+        { CLAUDE_CODE_AUTO_COMPACT_WINDOW: '120000' },
+        { CLAUDE_CODE_AUTO_COMPACT_WINDOW: 60000, CLAUDE_TRANSCRIPT_ROTATE_AGE_DAYS: 3 },
+      ),
+    ).toEqual(['-e', 'CLAUDE_CODE_AUTO_COMPACT_WINDOW=60000', '-e', 'CLAUDE_TRANSCRIPT_ROTATE_AGE_DAYS=3']);
+  });
+
+  it('an unset per-group value falls through to the install default', () => {
+    expect(
+      agentTuningEnvArgs(
+        { CLAUDE_TRANSCRIPT_ROTATE_AGE_DAYS: '14' },
+        {},
+        { CLAUDE_CODE_AUTO_COMPACT_WINDOW: undefined },
+      ),
+    ).toEqual(['-e', 'CLAUDE_TRANSCRIPT_ROTATE_AGE_DAYS=14']);
+  });
+
+  it('is wired into buildContainerArgs with the group config (structural)', () => {
     const src = fs.readFileSync(path.join(process.cwd(), 'src', 'container-runner.ts'), 'utf-8');
-    expect(src).toContain('args.push(...agentTuningEnvArgs());');
+    expect(src).toContain('...agentTuningEnvArgs(undefined, undefined, {');
+    expect(src).toContain('CLAUDE_CODE_AUTO_COMPACT_WINDOW: containerConfig.compactWindow');
+    expect(src).toContain('CLAUDE_TRANSCRIPT_ROTATE_AGE_DAYS: containerConfig.rotateAgeDays');
   });
 });

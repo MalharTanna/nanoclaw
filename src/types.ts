@@ -25,6 +25,8 @@ export interface ContainerConfigRow {
   packages_npm: string; // JSON: string[]
   additional_mounts: string; // JSON: AdditionalMountConfig[]
   cli_scope: string; // 'disabled' | 'group' | 'global'
+  compact_window: number | null; // tokens; NULL = inherit .env / runner default
+  rotate_age_days: number | null; // days; NULL = inherit .env / runner default
   updated_at: string;
 }
 

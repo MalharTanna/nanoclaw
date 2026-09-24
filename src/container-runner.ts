@@ -450,17 +450,20 @@ export const AGENT_TUNING_ENV_KEYS = [
 ] as const;
 
 /**
- * `-e KEY=VALUE` args for each tuning knob that is set. process.env wins over
- * .env (same precedence as src/config.ts). Values must be plain numbers; any
+ * `-e KEY=VALUE` args for each tuning knob that is set. Precedence: the
+ * group's own container config, then process.env, then .env (same order as
+ * src/config.ts for the last two). Values must be plain numbers; any
  * other value is dropped with a warning rather than passed to the container.
  */
 export function agentTuningEnvArgs(
   dotenv: Record<string, string> = readEnvFile([...AGENT_TUNING_ENV_KEYS]),
   procEnv: NodeJS.ProcessEnv = process.env,
+  perGroup: Partial<Record<(typeof AGENT_TUNING_ENV_KEYS)[number], number>> = {},
 ): string[] {
   const args: string[] = [];
   for (const key of AGENT_TUNING_ENV_KEYS) {
-    const value = (procEnv[key] || dotenv[key] || '').trim();
+    const own = perGroup[key];
+    const value = (own !== undefined ? String(own) : procEnv[key] || dotenv[key] || '').trim();
     if (!value) continue;
     if (!/^-?\d+(\.\d+)?$/.test(value)) {
       log.warn('Ignoring non-numeric agent tuning value', { key });
@@ -496,7 +499,12 @@ async function buildContainerArgs(
   // Agent context-tuning knobs (compaction window, transcript rotation). The
   // agent-runner reads these from its own process.env; re-read from .env on
   // every spawn so an operator edit applies to the next container, no restart.
-  args.push(...agentTuningEnvArgs());
+  args.push(
+    ...agentTuningEnvArgs(undefined, undefined, {
+      CLAUDE_CODE_AUTO_COMPACT_WINDOW: containerConfig.compactWindow,
+      CLAUDE_TRANSCRIPT_ROTATE_AGE_DAYS: containerConfig.rotateAgeDays,
+    }),
+  );
 
   // Provider-contributed env vars (e.g. XDG_DATA_HOME, OPENCODE_*, NO_PROXY).
   if (providerContribution.env) {

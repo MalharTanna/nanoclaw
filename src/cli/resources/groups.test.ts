@@ -259,3 +259,50 @@ describe('groups config add-mount / remove-mount (host-only)', () => {
     expect(JSON.parse(getContainerConfig(GID)!.additional_mounts)).toEqual([]);
   });
 });
+
+describe('groups config update — per-group context tuning', () => {
+  const GID = 'ag-tune';
+
+  beforeEach(() => {
+    if (fs.existsSync(TEST_DIR)) fs.rmSync(TEST_DIR, { recursive: true });
+    fs.mkdirSync(TEST_DIR, { recursive: true });
+    const db = initTestDb();
+    runMigrations(db);
+    createAgentGroup({ id: GID, name: 'tune', folder: 'tune', agent_provider: null, created_at: now() });
+    ensureContainerConfig(GID);
+  });
+
+  afterEach(() => {
+    closeDb();
+    if (fs.existsSync(TEST_DIR)) fs.rmSync(TEST_DIR, { recursive: true });
+  });
+
+  const update = (args: Record<string, unknown>) =>
+    dispatch({ id: 'req-tune', command: 'groups-config-update', args: { id: GID, ...args } }, { caller: 'host' });
+
+  it('defaults to NULL (inherit) for new configs', () => {
+    const row = getContainerConfig(GID)!;
+    expect(row.compact_window).toBeNull();
+    expect(row.rotate_age_days).toBeNull();
+  });
+
+  it('sets both knobs', async () => {
+    const resp = await update({ 'compact-window': '60000', 'rotate-age-days': '3' });
+    expect(resp.ok).toBe(true);
+    const row = getContainerConfig(GID)!;
+    expect(row.compact_window).toBe(60000);
+    expect(row.rotate_age_days).toBe(3);
+  });
+
+  it('"inherit" clears a knob back to NULL', async () => {
+    await update({ 'compact-window': '60000' });
+    await update({ 'compact-window': 'inherit' });
+    expect(getContainerConfig(GID)!.compact_window).toBeNull();
+  });
+
+  it('rejects values below the minimum and non-numbers', async () => {
+    expect((await update({ 'compact-window': '500' })).ok).toBe(false);
+    expect((await update({ 'rotate-age-days': 'soon' })).ok).toBe(false);
+    expect(getContainerConfig(GID)!.compact_window).toBeNull();
+  });
+});
