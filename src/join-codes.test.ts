@@ -81,7 +81,9 @@ describe('maybeHandleJoinCode', () => {
   it('links a DM sender by phone number, with a DM-specific confirmation', async () => {
     arm({ AB23CD: { expiresAt: '2026-09-26T00:00:00.000Z' } });
     expect(await maybeHandleJoinCode(event(false, '919876543210@s.whatsapp.net'), 'join AB23CD', dir, NOW)).toBe(true);
-    expect(requests()).toEqual([expect.objectContaining({ code: 'AB23CD', platformId: '919876543210@s.whatsapp.net' })]);
+    expect(requests()).toEqual([
+      expect.objectContaining({ code: 'AB23CD', platformId: '919876543210@s.whatsapp.net' }),
+    ]);
     expect(JSON.parse(deliver.mock.calls[0][4]).text).toContain('Your number is now connected to **Miro**');
   });
 
