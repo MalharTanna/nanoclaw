@@ -12,6 +12,7 @@ import {
   joinCodesPath,
   linkRequestsPath,
   matchJoinCode,
+  isSharedNumber,
   maybeHandleJoinCode,
 } from './join-codes.js';
 
@@ -70,11 +71,25 @@ describe('maybeHandleJoinCode', () => {
     expect(deliver).not.toHaveBeenCalled();
   });
 
-  it('ignores DMs and non-join text', async () => {
+  it('ignores non-join text', async () => {
     arm({ AB23CD: { expiresAt: '2026-09-26T00:00:00.000Z' } });
-    expect(await maybeHandleJoinCode(event(false), 'join AB23CD', dir, NOW)).toBe(false);
     expect(await maybeHandleJoinCode(event(), 'hello team', dir, NOW)).toBe(false);
+    expect(await maybeHandleJoinCode(event(false, '919876543210@s.whatsapp.net'), 'hi', dir, NOW)).toBe(false);
     expect(requests()).toEqual([]);
+  });
+
+  it('links a DM sender by phone number, with a DM-specific confirmation', async () => {
+    arm({ AB23CD: { expiresAt: '2026-09-26T00:00:00.000Z' } });
+    expect(await maybeHandleJoinCode(event(false, '919876543210@s.whatsapp.net'), 'join AB23CD', dir, NOW)).toBe(true);
+    expect(requests()).toEqual([expect.objectContaining({ code: 'AB23CD', platformId: '919876543210@s.whatsapp.net' })]);
+    expect(JSON.parse(deliver.mock.calls[0][4]).text).toContain('Your number is now connected to **Miro**');
+  });
+
+  it('refuses a DM whose sender is still an unresolved @lid', async () => {
+    arm({ AB23CD: { expiresAt: '2026-09-26T00:00:00.000Z' } });
+    expect(await maybeHandleJoinCode(event(false, '123456789012345@lid'), 'join AB23CD', dir, NOW)).toBe(true);
+    expect(requests()).toEqual([]);
+    expect(JSON.parse(deliver.mock.calls[0][4]).text).toContain("couldn't confirm your number");
   });
 
   it('accepts an armed code: records the request and confirms in the group', async () => {
@@ -122,5 +137,20 @@ describe('router wiring (structural)', () => {
     const unwired = src.indexOf('if (agentCount === 0) {');
     const secondHook = src.indexOf('maybeHandleJoinCode(event', unwired);
     expect(secondHook).toBeLessThan(src.indexOf('if (!isMention) return;', unwired));
+  });
+});
+
+describe('isSharedNumber', () => {
+  it('is on only for NANOCLAW_SHARED_NUMBER=true', () => {
+    const orig = process.env.NANOCLAW_SHARED_NUMBER;
+    try {
+      process.env.NANOCLAW_SHARED_NUMBER = 'true';
+      expect(isSharedNumber()).toBe(true);
+      process.env.NANOCLAW_SHARED_NUMBER = 'yes';
+      expect(isSharedNumber()).toBe(false);
+    } finally {
+      if (orig === undefined) delete process.env.NANOCLAW_SHARED_NUMBER;
+      else process.env.NANOCLAW_SHARED_NUMBER = orig;
+    }
   });
 });

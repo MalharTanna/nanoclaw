@@ -32,7 +32,7 @@ import { startTypingRefresh, stopTypingRefresh } from './modules/typing/index.js
 import { log } from './log.js';
 import { resolveSession, writeSessionMessage, writeOutboundDirect } from './session-manager.js';
 import { wakeContainer } from './container-runner.js';
-import { maybeHandleJoinCode } from './join-codes.js';
+import { isSharedNumber, maybeHandleJoinCode } from './join-codes.js';
 import { isQuotaBlocked, notifyOwnerQuotaReached } from './quota-gate.js';
 import { getSession } from './db/sessions.js';
 import type { AgentGroup, MessagingGroup, MessagingGroupAgent } from './types.js';
@@ -200,6 +200,7 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
     // Shared-number installs: "join <code>" in a group we sit in but aren't
     // wired to links it to a tenant (src/join-codes.ts). No-op elsewhere.
     if (await maybeHandleJoinCode(event, safeParseContent(event.message.content).text)) return;
+    if (isSharedNumber()) return; // shared number: unlinked chats are silently ignored
     // No messaging_groups row. Auto-create only when the message warrants
     // attention (the bot was addressed — @mention or DM). Plain chatter in
     // channels we merely sit in stays silent — no row, no DB writes.
@@ -242,6 +243,7 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
   //     escalate to owner for channel-registration approval.
   if (agentCount === 0) {
     if (await maybeHandleJoinCode(event, safeParseContent(event.message.content).text)) return;
+    if (isSharedNumber()) return;
     if (!isMention) return;
     if (mg.denied_at) {
       log.debug('Message dropped — channel was denied by owner', {
