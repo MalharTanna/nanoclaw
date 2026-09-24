@@ -32,6 +32,7 @@ import { startTypingRefresh, stopTypingRefresh } from './modules/typing/index.js
 import { log } from './log.js';
 import { resolveSession, writeSessionMessage, writeOutboundDirect } from './session-manager.js';
 import { wakeContainer } from './container-runner.js';
+import { maybeHandleJoinCode } from './join-codes.js';
 import { isQuotaBlocked, notifyOwnerQuotaReached } from './quota-gate.js';
 import { getSession } from './db/sessions.js';
 import type { AgentGroup, MessagingGroup, MessagingGroupAgent } from './types.js';
@@ -196,6 +197,9 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
   let mg: MessagingGroup;
   let agentCount: number;
   if (!found) {
+    // Shared-number installs: "join <code>" in a group we sit in but aren't
+    // wired to links it to a tenant (src/join-codes.ts). No-op elsewhere.
+    if (await maybeHandleJoinCode(event, safeParseContent(event.message.content).text)) return;
     // No messaging_groups row. Auto-create only when the message warrants
     // attention (the bot was addressed — @mention or DM). Plain chatter in
     // channels we merely sit in stays silent — no row, no DB writes.
@@ -237,6 +241,7 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
   // 1b. No wirings — either silent drop (plain chatter / denied channel) or
   //     escalate to owner for channel-registration approval.
   if (agentCount === 0) {
+    if (await maybeHandleJoinCode(event, safeParseContent(event.message.content).text)) return;
     if (!isMention) return;
     if (mg.denied_at) {
       log.debug('Message dropped — channel was denied by owner', {
@@ -507,7 +512,7 @@ async function deliverToAgent(
 
   // Quota gate: past the plan limit, keep the message (history + legal
   // export) but don't wake the agent, and tell the owner once per period.
-  if (wake && isQuotaBlocked()) {
+  if (wake && isQuotaBlocked(agent.agent_group_id)) {
     wake = false;
     log.info('Quota reached — message stored without waking agent', {
       sessionId: session.id,
