@@ -212,7 +212,7 @@ async function sweepSession(session: Session): Promise<void> {
     // and the wake would never fire.
     const dueCount = countDueMessages(inDb);
     let justWoke = false;
-    if (dueCount > 0 && !isContainerRunning(session.id) && isQuotaBlocked()) {
+    if (dueCount > 0 && !isContainerRunning(session.id) && isQuotaBlocked(session.agent_group_id)) {
       // Plan limit reached: due work (scheduled tasks, retries) stays pending
       // and runs once the control plane lifts the block.
       log.debug('Quota reached — not waking container for due messages', { sessionId: session.id, count: dueCount });
