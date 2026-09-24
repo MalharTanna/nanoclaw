@@ -278,7 +278,8 @@ CREATE TABLE IF NOT EXISTS usage_log (
   output_tokens      INTEGER NOT NULL DEFAULT 0,
   api_calls          INTEGER NOT NULL DEFAULT 0,
   cost_usd           REAL,
-  duration_ms        INTEGER
+  duration_ms        INTEGER,
+  research_calls     INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS container_state (

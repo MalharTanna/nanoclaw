@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test';
 
-import { extractTurnUsage } from '../providers/claude.js';
+import { countResearchCalls, extractTurnUsage } from '../providers/claude.js';
 import { getOutboundDb, initTestSessionDb } from './connection.js';
 import { _resetUsageLogForTest, recordTurnUsage } from './usage-log.js';
 
@@ -37,6 +37,18 @@ describe('recordTurnUsage', () => {
       duration_ms: 8400,
     });
     expect(String(rows[0].ts)).toMatch(/Z$/);
+  });
+
+  test('records research calls, and adds the column to an older table', () => {
+    getOutboundDb().exec('DROP TABLE IF EXISTS usage_log');
+    getOutboundDb().exec(
+      'CREATE TABLE usage_log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL, kind TEXT NOT NULL, model TEXT, input_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, api_calls INTEGER NOT NULL DEFAULT 0, cost_usd REAL, duration_ms INTEGER)',
+    );
+    _resetUsageLogForTest();
+    recordTurnUsage({ ...sample, researchCalls: 2 }, 'chat');
+    recordTurnUsage(sample, 'chat');
+    const rows = getOutboundDb().prepare('SELECT research_calls FROM usage_log ORDER BY id').all() as { research_calls: number }[];
+    expect(rows.map((r) => r.research_calls)).toEqual([2, 0]);
   });
 
   test('creates the table lazily on an older DB that lacks it', () => {
@@ -111,5 +123,25 @@ describe('extractTurnUsage', () => {
       costUsd: null,
       durationMs: null,
     });
+  });
+});
+
+describe('countResearchCalls', () => {
+  test('counts web search and fetch tool uses, client or server side', () => {
+    expect(
+      countResearchCalls({
+        message: {
+          content: [
+            { type: 'text', text: 'looking' },
+            { type: 'tool_use', name: 'WebSearch' },
+            { type: 'tool_use', name: 'WebFetch' },
+            { type: 'server_tool_use', name: 'web_search' },
+            { type: 'tool_use', name: 'Bash' },
+          ],
+        },
+      }),
+    ).toBe(3);
+    expect(countResearchCalls({ message: { content: 'plain' } })).toBe(0);
+    expect(countResearchCalls(null)).toBe(0);
   });
 });

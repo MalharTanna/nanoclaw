@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS usage_log (
   output_tokens      INTEGER NOT NULL DEFAULT 0,
   api_calls          INTEGER NOT NULL DEFAULT 0,
   cost_usd           REAL,
-  duration_ms        INTEGER
+  duration_ms        INTEGER,
+  research_calls     INTEGER NOT NULL DEFAULT 0
 );
 `;
 
@@ -38,11 +39,16 @@ export function recordTurnUsage(usage: TurnUsage, kind: 'chat' | 'task', onError
     if (!tableReady) {
       // Older session DBs predate the table - create it lazily.
       db.exec(USAGE_LOG_DDL);
+      // Tables created before research_calls existed: add the column once.
+      const cols = db.prepare('PRAGMA table_info(usage_log)').all() as { name: string }[];
+      if (!cols.some((c) => c.name === 'research_calls')) {
+        db.exec('ALTER TABLE usage_log ADD COLUMN research_calls INTEGER NOT NULL DEFAULT 0');
+      }
       tableReady = true;
     }
     db.prepare(
-      `INSERT INTO usage_log (ts, kind, model, input_tokens, cache_write_tokens, cache_read_tokens, output_tokens, api_calls, cost_usd, duration_ms)
-       VALUES ($ts, $kind, $model, $input_tokens, $cache_write_tokens, $cache_read_tokens, $output_tokens, $api_calls, $cost_usd, $duration_ms)`,
+      `INSERT INTO usage_log (ts, kind, model, input_tokens, cache_write_tokens, cache_read_tokens, output_tokens, api_calls, cost_usd, duration_ms, research_calls)
+       VALUES ($ts, $kind, $model, $input_tokens, $cache_write_tokens, $cache_read_tokens, $output_tokens, $api_calls, $cost_usd, $duration_ms, $research_calls)`,
     ).run({
       $ts: new Date().toISOString(),
       $kind: kind,
@@ -54,6 +60,7 @@ export function recordTurnUsage(usage: TurnUsage, kind: 'chat' | 'task', onError
       $api_calls: usage.apiCalls,
       $cost_usd: usage.costUsd,
       $duration_ms: usage.durationMs,
+      $research_calls: usage.researchCalls ?? 0,
     });
   } catch (err) {
     onError?.(`usage_log write failed: ${err instanceof Error ? err.message : String(err)}`);

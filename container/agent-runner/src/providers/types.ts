@@ -135,6 +135,8 @@ export interface TurnUsage {
   /** Provider's own cost estimate at list price, if reported. */
   costUsd: number | null;
   durationMs: number | null;
+  /** Web searches + page fetches in the turn (SaaS: a research answer counts as more than one reply). */
+  researchCalls?: number;
 }
 
 export type ProviderEvent =

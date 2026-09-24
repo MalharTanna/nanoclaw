@@ -435,6 +435,20 @@ function transcriptStartMs(transcriptPath: string): number | null {
   }
 }
 
+/** Tools that make a turn a "research" answer for metering. */
+const RESEARCH_TOOLS = new Set(['WebSearch', 'WebFetch', 'web_search', 'web_fetch']);
+
+/** Research tool calls in one SDK assistant message (client tool_use or server_tool_use blocks). */
+export function countResearchCalls(message: unknown): number {
+  const content = (message as { message?: { content?: unknown } })?.message?.content;
+  if (!Array.isArray(content)) return 0;
+  let n = 0;
+  for (const block of content as { type?: string; name?: string }[]) {
+    if ((block.type === 'tool_use' || block.type === 'server_tool_use') && block.name && RESEARCH_TOOLS.has(block.name)) n++;
+  }
+  return n;
+}
+
 /**
  * Pull token usage off an SDK `result` message. Numbers only - never text.
  * Returns undefined when the message carries no usage block.
@@ -643,6 +657,8 @@ export class ClaudeProvider implements AgentProvider {
       let messageCount = 0;
       // Running SDK total_cost_usd for this query - see extractTurnUsage.
       let queryCostUsd = 0;
+      // Research tool calls since the last result (this turn).
+      let researchCalls = 0;
       const interim = new InterimTextBuffer();
       for await (const message of sdkResult) {
         if (aborted) return;
@@ -654,6 +670,7 @@ export class ClaudeProvider implements AgentProvider {
         if (message.type === 'system' && message.subtype === 'init') {
           yield { type: 'init', continuation: message.session_id };
         } else if (message.type === 'assistant') {
+          researchCalls += countResearchCalls(message);
           for (const text of interim.onAssistant(message)) yield { type: 'interim', text };
         } else if (message.type === 'result') {
           interim.onResult();
@@ -663,7 +680,9 @@ export class ClaudeProvider implements AgentProvider {
           // billing/quota notice to the user rather than dropping the turn.
           const m = message as { result?: string; is_error?: boolean; errors?: string[] };
           const text = m.result ?? (m.errors && m.errors.length > 0 ? m.errors.join('\n') : null);
-          const usage = extractTurnUsage(message, queryCostUsd);
+          const extracted = extractTurnUsage(message, queryCostUsd);
+          const usage = extracted ? { ...extracted, researchCalls } : undefined;
+          researchCalls = 0;
           const total = (message as { total_cost_usd?: unknown }).total_cost_usd;
           if (typeof total === 'number') queryCostUsd = total;
           yield { type: 'result', text, isError: m.is_error === true, usage };
