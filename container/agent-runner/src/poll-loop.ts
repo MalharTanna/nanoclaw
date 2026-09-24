@@ -494,6 +494,10 @@ export async function processQuery(
         // effectively orphaned and the next message started a blank
         // Claude session with no prior context.
         setContinuation(providerName, event.continuation);
+      } else if (event.type === 'interim') {
+        // Mid-turn <message> text (written before a later tool call) — deliver
+        // it now; the turn's final text still arrives as `result`.
+        dispatchResultText(event.text, routing);
       } else if (event.type === 'result') {
         // A result — with or without text — means the turn is done. Mark
         // the initial batch completed now so the host sweep doesn't see
@@ -603,6 +607,9 @@ function handleEvent(event: ProviderEvent, _routing: RoutingContext): void {
       break;
     case 'progress':
       log(`Progress: ${event.message}`);
+      break;
+    case 'interim':
+      log(`Interim: ${event.text.slice(0, 200)}`);
       break;
   }
 }

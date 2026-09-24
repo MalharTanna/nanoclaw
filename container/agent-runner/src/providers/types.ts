@@ -146,6 +146,13 @@ export type ProviderEvent =
    * dropping it as un-wrapped scratchpad, and to skip the re-wrap nudge.
    */
   | { type: 'result'; text: string | null; isError?: boolean; usage?: TurnUsage }
+  /**
+   * Assistant text written mid-turn, before a later tool call. Only the
+   * turn's final text arrives as `result`, so a `<message>` block the agent
+   * wrote between tool calls (e.g. answering two questions with a search in
+   * between) would otherwise never be delivered. Dispatched like a result.
+   */
+  | { type: 'interim'; text: string }
   | { type: 'error'; message: string; retryable: boolean; classification?: string }
   | { type: 'progress'; message: string }
   /**

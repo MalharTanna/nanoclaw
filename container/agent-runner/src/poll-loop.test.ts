@@ -220,7 +220,13 @@ describe('origin metadata (from= attribute)', () => {
       .run(name, name, channelType, platformId);
   }
 
-  function insertWithRouting(id: string, kind: string, content: object, channelType: string | null, platformId: string | null): void {
+  function insertWithRouting(
+    id: string,
+    kind: string,
+    content: object,
+    channelType: string | null,
+    platformId: string | null,
+  ): void {
     getInboundDb()
       .prepare(
         `INSERT INTO messages_in (id, kind, timestamp, status, platform_id, channel_type, content)
@@ -438,6 +444,28 @@ describe('error result with no <message> envelope', () => {
   });
 });
 
+describe('mid-turn <message> text (interim events)', () => {
+  it('delivers an answer written before a later tool call, then the final answer', async () => {
+    getInboundDb()
+      .prepare(
+        `INSERT INTO destinations (name, display_name, type, channel_type, platform_id, agent_group_id)
+         VALUES ('discord-test', 'Discord Test', 'channel', 'discord', 'chan-1', NULL)`,
+      )
+      .run();
+    async function* events(): AsyncGenerator<ProviderEvent> {
+      yield { type: 'init', continuation: 'sess-1' };
+      yield { type: 'interim', text: '<message to="discord-test">first answer</message>' };
+      yield { type: 'result', text: '<message to="discord-test">second answer</message>' };
+    }
+    const query: AgentQuery = { push: () => {}, end: () => {}, events: events(), abort: () => {} };
+
+    await processQuery(query, ERR_ROUTING, ['m1'], 'claude', undefined, 'prompt', undefined);
+
+    const texts = getUndeliveredMessages().map((m) => JSON.parse(m.content).text);
+    expect(texts).toEqual(['first answer', 'second answer']);
+  });
+});
+
 describe('isCorruptionError', () => {
   it('matches the Docker Desktop macOS torn-read symptom', () => {
     expect(isCorruptionError('database disk image is malformed')).toBe(true);
@@ -470,9 +498,9 @@ const TASK_ROUTING = {
 
 function taskLogRows(): Array<{ text: string }> {
   return (
-    getOutboundDb()
-      .prepare("SELECT content FROM messages_out WHERE kind = 'task_log' ORDER BY seq")
-      .all() as Array<{ content: string }>
+    getOutboundDb().prepare("SELECT content FROM messages_out WHERE kind = 'task_log' ORDER BY seq").all() as Array<{
+      content: string;
+    }>
   ).map((r) => JSON.parse(r.content) as { text: string });
 }
 

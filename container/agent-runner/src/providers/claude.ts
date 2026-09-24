@@ -477,6 +477,42 @@ export function extractTurnUsage(message: unknown, priorQueryCostUsd = 0): TurnU
   };
 }
 
+/**
+ * Holds `<message>`-bearing assistant text until the turn shows it was not
+ * the final text. The SDK's `result` carries only the last assistant text, so
+ * text followed by a later tool_use is mid-turn and must be delivered on its
+ * own. Subagent (Task) output is ignored — it never goes to the user.
+ */
+export class InterimTextBuffer {
+  private pending: string[] = [];
+
+  /** Feed an SDK `assistant` message; returns texts that are now known to be mid-turn. */
+  onAssistant(message: unknown): string[] {
+    const m = message as {
+      parent_tool_use_id?: string | null;
+      message?: { content?: Array<{ type?: string; text?: unknown }> };
+    };
+    if (m.parent_tool_use_id) return [];
+    const blocks = m.message?.content;
+    if (!Array.isArray(blocks)) return [];
+    const ready: string[] = [];
+    for (const block of blocks) {
+      if (block.type === 'text' && typeof block.text === 'string' && /<message\s+to=/.test(block.text)) {
+        this.pending.push(block.text);
+      } else if (block.type === 'tool_use' && this.pending.length > 0) {
+        ready.push(...this.pending);
+        this.pending = [];
+      }
+    }
+    return ready;
+  }
+
+  /** Turn ended — anything still pending is the result's own text. */
+  onResult(): void {
+    this.pending = [];
+  }
+}
+
 // ── Provider ──
 
 /**
@@ -607,6 +643,7 @@ export class ClaudeProvider implements AgentProvider {
       let messageCount = 0;
       // Running SDK total_cost_usd for this query — see extractTurnUsage.
       let queryCostUsd = 0;
+      const interim = new InterimTextBuffer();
       for await (const message of sdkResult) {
         if (aborted) return;
         messageCount++;
@@ -616,7 +653,10 @@ export class ClaudeProvider implements AgentProvider {
 
         if (message.type === 'system' && message.subtype === 'init') {
           yield { type: 'init', continuation: message.session_id };
+        } else if (message.type === 'assistant') {
+          for (const text of interim.onAssistant(message)) yield { type: 'interim', text };
         } else if (message.type === 'result') {
+          interim.onResult();
           // `result` text exists only on subtype:"success"; error subtypes
           // (e.g. a non-retryable 403 billing_error) carry their message in
           // `errors[]` instead. Surface either so the poll-loop can deliver a
