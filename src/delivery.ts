@@ -29,7 +29,9 @@ import {
 } from './db/session-db.js';
 import { runGuarded, type DeliveryGuardSpec, type GuardedDeliveryHandler } from './delivery-guard.js';
 import { isUnguarded, type Unguarded } from './guard/index.js';
+import { getContainerConfig } from './db/container-configs.js';
 import { log } from './log.js';
+import { replyPrefixMode, withGroupPrefix } from './reply-prefix.js';
 import { normalizeOptions } from './channels/ask-question.js';
 import { clearOutbox, openInboundDb, openOutboundDb, readOutboxFiles } from './session-manager.js';
 import { pauseTypingRefreshAfterDelivery, setTypingAdapter } from './modules/typing/index.js';
@@ -405,12 +407,18 @@ async function deliverMessage(
       ? readOutboxFiles(session.agent_group_id, session.id, msg.id, content.files as string[])
       : undefined;
 
+  // Shared-number installs: prefix replies with this tenant's bot name.
+  const outContent =
+    replyPrefixMode() === 'group'
+      ? withGroupPrefix(msg.kind, msg.content, getContainerConfig(session.agent_group_id)?.assistant_name)
+      : msg.content;
+
   const platformMsgId = await deliveryAdapter.deliver(
     msg.channel_type,
     msg.platform_id,
     msg.thread_id,
     msg.kind,
-    msg.content,
+    outContent,
     files,
     deliverInstance,
   );
