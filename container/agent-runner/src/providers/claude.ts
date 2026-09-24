@@ -438,8 +438,12 @@ function transcriptStartMs(transcriptPath: string): number | null {
 /**
  * Pull token usage off an SDK `result` message. Numbers only — never text.
  * Returns undefined when the message carries no usage block.
+ *
+ * `usage` and `num_turns` are per turn, but `total_cost_usd` accumulates over
+ * the whole open query (the poll-loop keeps one query alive across follow-up
+ * messages). Pass the running total seen so far to get this turn's share.
  */
-export function extractTurnUsage(message: unknown): TurnUsage | undefined {
+export function extractTurnUsage(message: unknown, priorQueryCostUsd = 0): TurnUsage | undefined {
   const m = message as {
     usage?: {
       input_tokens?: number;
@@ -462,7 +466,13 @@ export function extractTurnUsage(message: unknown): TurnUsage | undefined {
     cacheReadTokens: num(m.usage.cache_read_input_tokens),
     outputTokens: num(m.usage.output_tokens),
     apiCalls: num(m.num_turns),
-    costUsd: typeof m.total_cost_usd === 'number' ? m.total_cost_usd : null,
+    costUsd:
+      typeof m.total_cost_usd === 'number'
+        ? // A total below what we've seen means a fresh query — take it whole.
+          m.total_cost_usd >= priorQueryCostUsd
+          ? m.total_cost_usd - priorQueryCostUsd
+          : m.total_cost_usd
+        : null,
     durationMs: typeof m.duration_ms === 'number' ? m.duration_ms : null,
   };
 }
@@ -595,6 +605,8 @@ export class ClaudeProvider implements AgentProvider {
 
     async function* translateEvents(): AsyncGenerator<ProviderEvent> {
       let messageCount = 0;
+      // Running SDK total_cost_usd for this query — see extractTurnUsage.
+      let queryCostUsd = 0;
       for await (const message of sdkResult) {
         if (aborted) return;
         messageCount++;
@@ -611,7 +623,10 @@ export class ClaudeProvider implements AgentProvider {
           // billing/quota notice to the user rather than dropping the turn.
           const m = message as { result?: string; is_error?: boolean; errors?: string[] };
           const text = m.result ?? (m.errors && m.errors.length > 0 ? m.errors.join('\n') : null);
-          yield { type: 'result', text, isError: m.is_error === true, usage: extractTurnUsage(message) };
+          const usage = extractTurnUsage(message, queryCostUsd);
+          const total = (message as { total_cost_usd?: unknown }).total_cost_usd;
+          if (typeof total === 'number') queryCostUsd = total;
+          yield { type: 'result', text, isError: m.is_error === true, usage };
         } else if (message.type === 'system' && (message as { subtype?: string }).subtype === 'api_retry') {
           yield { type: 'error', message: 'API retry', retryable: true };
         } else if (message.type === 'rate_limit_event') {

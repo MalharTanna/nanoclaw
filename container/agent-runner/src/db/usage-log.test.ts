@@ -86,6 +86,16 @@ describe('extractTurnUsage', () => {
     expect(JSON.stringify(usage)).not.toContain('secret');
   });
 
+  test("turns the cumulative query cost into this turn's share", () => {
+    const msg = { usage: { output_tokens: 1 }, total_cost_usd: 0.0266 };
+    expect(extractTurnUsage(msg, 0.022)?.costUsd).toBeCloseTo(0.0046, 6);
+  });
+
+  test('treats a total lower than the prior as a fresh query', () => {
+    const msg = { usage: { output_tokens: 1 }, total_cost_usd: 0.01 };
+    expect(extractTurnUsage(msg, 0.05)?.costUsd).toBeCloseTo(0.01, 6);
+  });
+
   test('returns undefined without a usage block', () => {
     expect(extractTurnUsage({ type: 'result', result: 'x' })).toBeUndefined();
   });
