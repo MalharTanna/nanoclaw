@@ -42,6 +42,7 @@ import { isSafeAttachmentName } from '../attachment-safety.js';
 import { ASSISTANT_HAS_OWN_NUMBER, ASSISTANT_NAME } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
+import { idTag } from '../log-redact.js';
 import { registerChannelAdapter } from './channel-registry.js';
 import { normalizeOptions, type NormalizedOption } from './ask-question.js';
 import type { ChannelAdapter, ChannelSetup, ConversationInfo, InboundMessage, OutboundMessage } from './adapter.js';
@@ -409,7 +410,7 @@ registerChannelAdapter('whatsapp', {
       if (altJid && !altJid.endsWith('@lid')) {
         const phoneJid = altJid.includes('@') ? altJid : `${altJid}@s.whatsapp.net`;
         setLidPhoneMapping(lidUser, phoneJid);
-        log.info('Translated LID via alt JID', { lidJid: jid, phoneJid });
+        log.info('Translated LID via alt JID', { lidJid: idTag(jid), phoneJid: idTag(phoneJid) });
         return phoneJid;
       }
 
@@ -419,7 +420,7 @@ registerChannelAdapter('whatsapp', {
         if (pn) {
           const phoneJid = `${pn.split('@')[0].split(':')[0]}@s.whatsapp.net`;
           setLidPhoneMapping(lidUser, phoneJid);
-          log.info('Translated LID via signal repository', { lidJid: jid, phoneJid });
+          log.info('Translated LID via signal repository', { lidJid: idTag(jid), phoneJid: idTag(phoneJid) });
           return phoneJid;
         }
       } catch (err) {
@@ -581,10 +582,7 @@ registerChannelAdapter('whatsapp', {
           const fallback = `${type}-${Date.now()}${ext}`;
           const filename = isSafeAttachmentName(rawFilename) ? rawFilename : fallback;
           if (rawFilename && filename !== rawFilename) {
-            log.warn('Refused unsafe attachment filename — would escape inbox', {
-              rawFilename,
-              replacement: filename,
-            });
+            log.warn('Refused unsafe attachment filename — would escape inbox', { replacement: filename });
           }
           results.push({
             type,
@@ -593,7 +591,7 @@ registerChannelAdapter('whatsapp', {
             data: buffer.toString('base64'),
             size: buffer.length,
           });
-          log.info('Media downloaded', { type, filename, size: buffer.length });
+          log.info('Media downloaded', { type, size: buffer.length });
         } catch (err) {
           log.warn('Failed to download media', { type, err });
         }
@@ -604,7 +602,7 @@ registerChannelAdapter('whatsapp', {
     async function sendRawMessage(jid: string, text: string, mentions?: string[]): Promise<string | undefined> {
       if (!connected) {
         outgoingQueue.push({ jid, text, mentions });
-        log.info('WA disconnected, message queued', { jid, queueSize: outgoingQueue.length });
+        log.info('WA disconnected, message queued', { jid: idTag(jid), queueSize: outgoingQueue.length });
         return;
       }
       try {
@@ -617,7 +615,7 @@ registerChannelAdapter('whatsapp', {
         return sent?.key?.id ?? undefined;
       } catch (err) {
         outgoingQueue.push({ jid, text, mentions });
-        log.warn('Failed to send, message queued', { jid, err, queueSize: outgoingQueue.length });
+        log.warn('Failed to send, message queued', { jid: idTag(jid), err, queueSize: outgoingQueue.length });
         return undefined;
       }
     }
@@ -931,11 +929,7 @@ registerChannelAdapter('whatsapp', {
                 setupConfig.onAction(pending.questionId, matched.value, sender);
                 pendingQuestions.delete(chatJid);
                 await sendRawMessage(chatJid, `${matched.selectedLabel} by ${voterName}`);
-                log.info('Question answered', {
-                  questionId: pending.questionId,
-                  value: matched.value,
-                  voterName,
-                });
+                log.info('Question answered', { questionId: pending.questionId, value: matched.value });
                 continue; // Don't forward this reply to the agent
               }
             }
@@ -974,7 +968,7 @@ registerChannelAdapter('whatsapp', {
           } catch (err) {
             log.error('Error processing incoming WhatsApp message', {
               err,
-              remoteJid: msg.key?.remoteJid,
+              remoteJid: idTag(msg.key?.remoteJid),
             });
           }
         }
@@ -1074,7 +1068,7 @@ registerChannelAdapter('whatsapp', {
               }
               if (caption) captionUsed = true;
             } catch (err) {
-              log.error('Failed to send file', { platformId, filename: file.filename, err });
+              log.error('Failed to send file', { platformId: idTag(platformId), err });
             }
           }
           if (captionUsed) return; // Text was sent as caption
