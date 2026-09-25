@@ -410,7 +410,8 @@ async function deliverMessage(
   // SaaS installs: plain hyphens instead of long dashes, then (shared number)
   // prefix replies with this tenant's bot name.
   let outContent = plainDashesEnabled() ? withPlainDashes(msg.kind, msg.content) : msg.content;
-  if (replyPrefixMode() === 'group') {
+  // The web widget shows the assistant's name itself: no prefix there.
+  if (replyPrefixMode() === 'group' && msg.channel_type !== 'web') {
     outContent = withGroupPrefix(msg.kind, outContent, getContainerConfig(session.agent_group_id)?.assistant_name);
   }
 
