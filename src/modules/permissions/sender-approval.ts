@@ -30,6 +30,7 @@ import { normalizeOptions, type RawOption } from '../../channels/ask-question.js
 import { getMessagingGroup } from '../../db/messaging-groups.js';
 import { getDeliveryAdapter } from '../../delivery.js';
 import { log } from '../../log.js';
+import { idTag } from '../../log-redact.js';
 import type { InboundEvent } from '../../channels/adapter.js';
 import { pickApprovalDelivery, pickApprover } from '../approvals/primitive.js';
 import { createPendingSenderApproval, hasInFlightSenderApproval } from './db/pending-sender-approvals.js';
@@ -59,7 +60,7 @@ export async function requestSenderApproval(input: RequestSenderApprovalInput): 
   if (hasInFlightSenderApproval(messagingGroupId, senderIdentity)) {
     log.debug('Unknown-sender approval already in flight — dropping retry', {
       messagingGroupId,
-      senderIdentity,
+      sender: idTag(senderIdentity),
     });
     return;
   }
@@ -69,7 +70,7 @@ export async function requestSenderApproval(input: RequestSenderApprovalInput): 
     log.warn('Unknown-sender approval skipped — no owner or admin configured', {
       messagingGroupId,
       agentGroupId,
-      senderIdentity,
+      sender: idTag(senderIdentity),
     });
     return;
   }
@@ -81,7 +82,7 @@ export async function requestSenderApproval(input: RequestSenderApprovalInput): 
     log.warn('Unknown-sender approval skipped — no DM channel for any approver', {
       messagingGroupId,
       agentGroupId,
-      senderIdentity,
+      sender: idTag(senderIdentity),
     });
     return;
   }
@@ -134,8 +135,8 @@ export async function requestSenderApproval(input: RequestSenderApprovalInput): 
     );
     log.info('Unknown-sender approval card delivered', {
       approvalId,
-      senderIdentity,
-      approver: target.userId,
+      sender: idTag(senderIdentity),
+      approver: idTag(target.userId),
       messagingGroupId,
       agentGroupId,
     });

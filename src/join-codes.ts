@@ -24,6 +24,7 @@ import { DATA_DIR } from './config.js';
 import { readEnvFile } from './env.js';
 import { getDeliveryAdapter } from './delivery.js';
 import { log } from './log.js';
+import { idTag } from './log-redact.js';
 import type { InboundEvent } from './channels/adapter.js';
 
 export const JOIN_RE = /^\s*join\s+([A-HJ-NP-Z2-9]{6})\s*$/i;
@@ -90,7 +91,7 @@ async function reply(event: InboundEvent, text: string): Promise<void> {
       event.instance ?? event.channelType,
     );
   } catch (err) {
-    log.warn('Join-code reply failed', { platformId: event.platformId, err });
+    log.warn('Join-code reply failed', { chat: idTag(event.platformId), err });
   }
 }
 
@@ -126,7 +127,7 @@ export async function maybeHandleJoinCode(
         "⚠️ That join code isn't valid or has expired. Get a new code from your dashboard and try again.",
       );
     }
-    log.info('Join code rejected', { platformId: event.platformId });
+    log.info('Join code rejected', { chat: idTag(event.platformId) });
     return true;
   }
 
@@ -140,7 +141,7 @@ export async function maybeHandleJoinCode(
     instance: event.instance ?? event.channelType,
   };
   fs.appendFileSync(linkRequestsPath(dataDir), JSON.stringify(request) + '\n', { mode: 0o600 });
-  log.info('Join code accepted', { platformId: event.platformId, tenantId: armed.tenantId });
+  log.info('Join code accepted', { chat: idTag(event.platformId), tenantId: armed.tenantId });
   await reply(
     event,
     isGroup

@@ -5,8 +5,9 @@ import { buildAgentGroupImage, killContainer, wakeContainer } from '../../contai
 import { restartAgentGroupContainers } from '../../container-restart.js';
 import { createAgentGroup, getAgentGroupByFolder } from '../../db/agent-groups.js';
 import { getDb, hasTable } from '../../db/connection.js';
-import { getSession } from '../../db/sessions.js';
+import { getSession, getSessionsByAgentGroup } from '../../db/sessions.js';
 import { writeSessionMessage } from '../../session-manager.js';
+import { collectPurgeScope, deleteOnecliAgent, purgeUnreferenced } from '../../tenant-purge.js';
 import {
   getContainerConfig,
   updateContainerConfigScalars,
@@ -125,7 +126,10 @@ registerResource({
       description:
         'Delete an agent group and its dependent rows (sessions, destinations, approvals, role grants, ' +
         'memberships, channel wirings). FK-ordered cascade in a single transaction. ' +
-        'Use --id <group-id>. Out of scope: killing running containers, on-disk cleanup of groups/<folder>/ and data/v2-sessions/<group-id>/.',
+        'Use --id <group-id>. Out of scope: killing running containers, on-disk cleanup of groups/<folder>/ and data/v2-sessions/<group-id>/. ' +
+        "With --purge (tenant offboarding): also stops the group's containers, removes the chats, people, DM cache and " +
+        "dropped-message records that no surviving group still uses (shared-number safe), and deletes the group's " +
+        'OneCLI vault agent. Files on disk are still left to the caller.',
       handler: async (args) => {
         const id = args.id as string;
         if (!id) throw new Error('--id is required');
@@ -138,6 +142,13 @@ registerResource({
 
         const hasAgentDestinations = hasTable(db, 'agent_destinations');
         const hasPendingApprovals = hasTable(db, 'pending_approvals');
+        const hasMessagePolicies = hasTable(db, 'agent_message_policies');
+
+        // --purge: note what the group touched before the cascade removes the
+        // links, and stop its containers so nothing writes after the delete.
+        const purge = args.purge === true || args.purge === 'true';
+        const scope = purge ? collectPurgeScope(db, id) : null;
+        if (purge) for (const s of getSessionsByAgentGroup(id)) killContainer(s.id, 'tenant purge');
 
         // FK-ordered cascade. Single sync transaction — better-sqlite3 rolls
         // back the whole thing if any statement throws (e.g. an FK constraint
@@ -156,6 +167,7 @@ registerResource({
             messaging_group_agents: 0,
             agent_group_members: 0,
             user_roles: 0,
+            agent_message_policies: 0,
             container_configs: 0,
           };
 
@@ -193,6 +205,11 @@ registerResource({
             .prepare('DELETE FROM agent_group_members WHERE agent_group_id = ?')
             .run(groupId).changes;
           counts.user_roles = db.prepare('DELETE FROM user_roles WHERE agent_group_id = ?').run(groupId).changes;
+          if (hasMessagePolicies) {
+            counts.agent_message_policies = db
+              .prepare('DELETE FROM agent_message_policies WHERE from_agent_group_id = ? OR to_agent_group_id = ?')
+              .run(groupId, groupId).changes;
+          }
           // migration-014 has ON DELETE CASCADE on container_configs.agent_group_id;
           // the explicit delete here mirrors the other tables and surfaces the count.
           counts.container_configs = db
@@ -202,8 +219,11 @@ registerResource({
           return counts;
         });
         const removed = cascade(id);
+        if (!scope) return { deleted: id, removed };
 
-        return { deleted: id, removed };
+        const purged = purgeUnreferenced(db, id, scope);
+        const onecli_agent = await deleteOnecliAgent(id);
+        return { deleted: id, removed, purge: { ...purged, onecli_agent } };
       },
     },
     restart: {

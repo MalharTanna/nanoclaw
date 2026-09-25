@@ -14,8 +14,10 @@ import { runMigrations } from './db/migrations/index.js';
 import { ensureContainerRuntimeRunning, cleanupOrphans } from './container-runtime.js';
 import { startActiveDeliveryPoll, startSweepDeliveryPoll, setDeliveryAdapter, stopDeliveryPolls } from './delivery.js';
 import { startHostSweep, stopHostSweep } from './host-sweep.js';
+import { startRetentionSweep, stopRetentionSweep } from './retention.js';
 import { routeInbound } from './router.js';
 import { log } from './log.js';
+import { idTag } from './log-redact.js';
 import { enforceUpgradeTripwire } from './upgrade-state.js';
 
 // Response + shutdown registries live in response-registry.ts to break the
@@ -114,11 +116,11 @@ async function main(): Promise<void> {
           });
         });
       },
-      onMetadata(platformId, name, isGroup) {
-        log.info('Channel metadata discovered', {
+      onMetadata(platformId, _name, isGroup) {
+        // Chat names and JIDs are personal data: debug level, id as a tag, no name.
+        log.debug('Channel metadata discovered', {
           channelType: adapter.channelType,
-          platformId,
-          name,
+          chat: idTag(platformId),
           isGroup,
         });
       },
@@ -155,6 +157,9 @@ async function main(): Promise<void> {
   startHostSweep();
   log.info('Host sweep started');
 
+  // 6b. Daily retention sweep (first run 10 min after start).
+  startRetentionSweep();
+
   // 7. Start the `ncl` CLI socket server (data/ncl.sock).
   await startCliServer();
 
@@ -177,6 +182,7 @@ async function shutdown(signal: string): Promise<void> {
   }
   stopDeliveryPolls();
   stopHostSweep();
+  stopRetentionSweep();
   await stopCliServer();
   try {
     await teardownChannelAdapters();

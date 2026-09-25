@@ -77,6 +77,15 @@ export function isContainerRunning(sessionId: string): boolean {
 }
 
 /**
+ * Running OR mid-spawn. Anything that writes to a container-owned file
+ * (outbound.db, outbox/) or deletes a session must check this, not just
+ * isContainerRunning: a wake in flight hasn't registered its process yet.
+ */
+export function isContainerBusy(sessionId: string): boolean {
+  return activeContainers.has(sessionId) || wakePromises.has(sessionId);
+}
+
+/**
  * Wake up a container for a session. If already running or mid-spawn, no-op
  * (the in-flight wake promise is reused).
  *
@@ -174,12 +183,16 @@ async function spawnContainer(session: Session): Promise<void> {
 
   // Log stderr. A container that dies at boot (unknown provider, missing
   // binary, bad config) explains itself only here — and debug is below the
-  // default log level — so keep a tail to surface on a non-zero exit.
+  // default log level - so keep a tail to surface on a non-zero exit. The
+  // tail keeps only lines that can't carry conversation text (see
+  // keepInStderrTail) so a crash never copies a customer's messages or the
+  // agent's replies into the warn-level log.
   const stderrTail: string[] = [];
   container.stderr?.on('data', (data) => {
     for (const line of data.toString().trim().split('\n')) {
       if (!line) continue;
       log.debug(line, { container: agentGroup.folder });
+      if (!keepInStderrTail(line)) continue;
       stderrTail.push(line);
       if (stderrTail.length > 10) stderrTail.shift();
     }
@@ -211,6 +224,24 @@ async function spawnContainer(session: Session): Promise<void> {
     stopTypingRefresh(session.id);
     log.error('Container spawn error', { sessionId: session.id, err });
   });
+}
+
+// agent-runner lines that echo reply or reasoning text: `[poll-loop] Result: …`,
+// `Interim: …`, `Progress: …` and `[scratchpad] …` (whose text can span lines).
+const REPLY_ECHO_RE = /^\[[\w-]+\] (?:(?:Result|Interim|Progress):|\[scratchpad\])/;
+// Lines worth keeping for a crash report: tagged runner lines, errors, stack frames.
+const TAGGED_RE = /^\[[\w-]+\] /;
+const ERROR_LINE_RE = /^(?:\s+at |[A-Za-z]*Error\b|node:|file:\/\/)/;
+
+/**
+ * Whether a container stderr line may go into the warn-level tail logged on a
+ * non-zero exit. Reply echoes are dropped, and so is any untagged line that
+ * isn't an error or stack frame (continuation lines of a multi-line scratchpad
+ * or reply look exactly like that).
+ */
+export function keepInStderrTail(line: string): boolean {
+  if (REPLY_ECHO_RE.test(line)) return false;
+  return TAGGED_RE.test(line) || ERROR_LINE_RE.test(line);
 }
 
 /** Kill a container for a session. */

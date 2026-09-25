@@ -27,6 +27,7 @@ import path from 'path';
 import { DATA_DIR } from './config.js';
 import { getDeliveryAdapter } from './delivery.js';
 import { log } from './log.js';
+import { idTag } from './log-redact.js';
 import { pickApprovalDelivery, pickApprover } from './modules/approvals/primitive.js';
 import { getAdminsOfAgentGroup } from './modules/permissions/db/user-roles.js';
 
@@ -165,7 +166,7 @@ export async function notifyOwnerQuotaReached(
       JSON.stringify({ text: QUOTA_NOTICE_TEXT }),
     );
     markQuotaNoticeSent(periodEnd, dataDir, scope, agentGroupId);
-    log.info('Quota-reached notice sent', { agentGroupId, scope, userId: target.userId });
+    log.info('Quota-reached notice sent', { agentGroupId, scope, user: idTag(target.userId) });
   } catch (err) {
     log.error('Failed to send quota-reached notice', { agentGroupId, err });
   } finally {

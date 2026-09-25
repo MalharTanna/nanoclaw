@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { describe, expect, it } from 'vitest';
 
-import { agentTuningEnvArgs, resolveProviderName } from './container-runner.js';
+import { agentTuningEnvArgs, keepInStderrTail, resolveProviderName } from './container-runner.js';
 
 describe('resolveProviderName', () => {
   it('prefers session over container config', () => {
@@ -168,5 +168,30 @@ describe('agentTuningEnvArgs', () => {
     expect(src).toContain('...agentTuningEnvArgs(undefined, undefined, {');
     expect(src).toContain('CLAUDE_CODE_AUTO_COMPACT_WINDOW: containerConfig.compactWindow');
     expect(src).toContain('CLAUDE_TRANSCRIPT_ROTATE_AGE_DAYS: containerConfig.rotateAgeDays');
+  });
+});
+
+describe('keepInStderrTail (no conversation text in warn logs)', () => {
+  it('drops reply, interim, progress and scratchpad echoes', () => {
+    expect(keepInStderrTail('[poll-loop] Result: Sure, your order #42 ships today')).toBe(false);
+    expect(keepInStderrTail('[poll-loop] Interim: checking the stock')).toBe(false);
+    expect(keepInStderrTail('[poll-loop] Progress: reading the menu')).toBe(false);
+    expect(keepInStderrTail('[poll-loop] [scratchpad] the customer asked about')).toBe(false);
+  });
+
+  it('drops untagged continuation lines (multi-line scratchpad or reply text)', () => {
+    expect(keepInStderrTail('and their phone number is 98xxxxxx')).toBe(false);
+  });
+
+  it('keeps tagged runner lines, errors and stack frames', () => {
+    expect(keepInStderrTail('[agent-runner] Fatal error: provider not found')).toBe(true);
+    expect(keepInStderrTail('[poll-loop] Completed 2 message(s)')).toBe(true);
+    expect(keepInStderrTail('TypeError: x is not a function')).toBe(true);
+    expect(keepInStderrTail('    at main (/app/src/index.ts:12:3)')).toBe(true);
+  });
+
+  it('is applied before a line enters the stderr tail (structural)', () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'src', 'container-runner.ts'), 'utf-8');
+    expect(src).toMatch(/if \(!keepInStderrTail\(line\)\) continue;\s*stderrTail\.push\(line\)/);
   });
 });

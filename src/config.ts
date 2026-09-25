@@ -18,6 +18,11 @@ const envConfig = readEnvFile([
   'NANOCLAW_EGRESS_LOCKDOWN',
   'NANOCLAW_EGRESS_NETWORK',
   'ONECLI_GATEWAY_CONTAINER',
+  'NANOCLAW_MESSAGE_RETENTION_DAYS',
+  'NANOCLAW_ROTATED_TRANSCRIPT_DAYS',
+  'NANOCLAW_WEB_SESSION_RETENTION_DAYS',
+  'NANOCLAW_WA_SENT_RETENTION_DAYS',
+  'NANOCLAW_LOG_RETENTION_DAYS',
 ]);
 
 /**
@@ -56,6 +61,8 @@ export const SENDER_ALLOWLIST_PATH = path.join(HOME_DIR, '.config', 'nanoclaw', 
 export const STORE_DIR = path.resolve(PROJECT_ROOT, 'store');
 export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
 export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
+// Where launchd/systemd redirect the host's stdout/stderr (setup/service.ts).
+export const LOGS_DIR = path.resolve(PROJECT_ROOT, 'logs');
 // Local agent-template library. Committed but ships empty (+ README). Resolved
 // once at load. Override to another LOCAL path via NANOCLAW_TEMPLATES_DIR; never
 // a remote URL, never an ncl flag, never runtime-mutable.
@@ -97,3 +104,21 @@ function resolveConfigTimezone(): string {
   return 'UTC';
 }
 export const TIMEZONE = resolveConfigTimezone();
+
+/**
+ * Retention periods in days for the daily retention sweep (src/retention.ts).
+ * 0 or an empty value disables that sweep; anything unparseable falls back to
+ * the default so a typo never turns deletion off (or on) by surprise.
+ */
+function retentionDays(key: string, fallback: number): number {
+  const raw = process.env[key] ?? envConfig[key];
+  if (raw === undefined) return fallback;
+  if (raw.trim() === '') return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+export const MESSAGE_RETENTION_DAYS = retentionDays('NANOCLAW_MESSAGE_RETENTION_DAYS', 365);
+export const ROTATED_TRANSCRIPT_DAYS = retentionDays('NANOCLAW_ROTATED_TRANSCRIPT_DAYS', 30);
+export const WEB_SESSION_RETENTION_DAYS = retentionDays('NANOCLAW_WEB_SESSION_RETENTION_DAYS', 30);
+export const WA_SENT_RETENTION_DAYS = retentionDays('NANOCLAW_WA_SENT_RETENTION_DAYS', 14);
+export const LOG_RETENTION_DAYS = retentionDays('NANOCLAW_LOG_RETENTION_DAYS', 30);

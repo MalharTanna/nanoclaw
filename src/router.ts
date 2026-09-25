@@ -30,6 +30,7 @@ import {
 import { findSessionForAgent } from './db/sessions.js';
 import { startTypingRefresh, stopTypingRefresh } from './modules/typing/index.js';
 import { log } from './log.js';
+import { idTag } from './log-redact.js';
 import { resolveSession, writeSessionMessage, writeOutboundDirect } from './session-manager.js';
 import { wakeContainer } from './container-runner.js';
 import { isSharedNumber, maybeHandleJoinCode } from './join-codes.js';
@@ -231,7 +232,7 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
     log.info('Auto-created messaging group', {
       id: mgId,
       channelType: event.channelType,
-      platformId: event.platformId,
+      chat: idTag(event.platformId),
     });
     agentCount = 0;
   } else {
@@ -276,7 +277,7 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
       log.warn('MESSAGE DROPPED — no agent groups wired and no channel-request gate registered', {
         messagingGroupId: mg.id,
         channelType: event.channelType,
-        platformId: event.platformId,
+        chat: idTag(event.platformId),
       });
     }
     return;
@@ -507,7 +508,11 @@ async function deliverToAgent(
         threadId: deliveryAddr.threadId,
         content: JSON.stringify({ text: `Permission denied: ${gate.command} requires admin access.` }),
       });
-      log.info('Admin command denied by gate', { command: gate.command, userId, agentGroupId: agent.agent_group_id });
+      log.info('Admin command denied by gate', {
+        command: gate.command,
+        user: idTag(userId),
+        agentGroupId: agent.agent_group_id,
+      });
       return;
     }
   }
@@ -539,7 +544,7 @@ async function deliverToAgent(
     agentGroup: agent.agent_group_id,
     engage_mode: agent.engage_mode,
     kind: event.message.kind,
-    userId,
+    user: idTag(userId),
     wake,
     created,
     agentGroupName: agentGroup.name,

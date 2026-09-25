@@ -31,6 +31,7 @@ import { runGuarded, type DeliveryGuardSpec, type GuardedDeliveryHandler } from 
 import { isUnguarded, type Unguarded } from './guard/index.js';
 import { getContainerConfig } from './db/container-configs.js';
 import { log } from './log.js';
+import { idTag } from './log-redact.js';
 import { plainDashesEnabled, replyPrefixMode, withGroupPrefix, withPlainDashes } from './reply-prefix.js';
 import { normalizeOptions } from './channels/ask-question.js';
 import { clearOutbox, openInboundDb, openOutboundDb, readOutboxFiles } from './session-manager.js';
@@ -427,7 +428,7 @@ async function deliverMessage(
   log.info('Message delivered', {
     id: msg.id,
     channelType: msg.channel_type,
-    platformId: msg.platform_id,
+    chat: idTag(msg.platform_id),
     platformMsgId,
     fileCount: files?.length,
   });

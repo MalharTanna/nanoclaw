@@ -189,6 +189,31 @@ Only `--memory` is a container-level cap; whether it's a *hard* cap depends on
 the host having no swap (a deployment concern). On a swapless host a runaway is
 OOM-killed at the limit.
 
+## Data Retention
+
+A daily sweep (`src/retention.ts`, first run 10 minutes after start) deletes
+personal data past these ages. `0` or an empty value turns that part off.
+
+| Env | Default | What is deleted |
+| --- | --- | --- |
+| `NANOCLAW_MESSAGE_RETENTION_DAYS` | `365` | Finished and unanswered-context `messages_in` rows, delivered `messages_out` rows, their attachment dirs, `groups/<folder>/conversations/*.md` and `tasks/*.md`. Never: pending/paused scheduled tasks, due or in-flight messages, `usage_log`. |
+| `NANOCLAW_ROTATED_TRANSCRIPT_DAYS` | `30` | `*.jsonl.rotated-<ms>` Claude transcripts (never the live `.jsonl`). |
+| `NANOCLAW_WEB_SESSION_RETENTION_DAYS` | `30` | Website-widget conversations idle this long: session folder, transcripts, session row, `web:<conversation>` user. |
+| `NANOCLAW_WA_SENT_RETENTION_DAYS` | `14` | `store/wa-sent/*` copies of sent WhatsApp messages. |
+| `NANOCLAW_LOG_RETENTION_DAYS` | `30` | Rotated `logs/nanoclaw{,.error}.log.<stamp>` copies. |
+
+Logs are written by launchd/systemd (`O_APPEND` redirection), so the sweep
+rotates them copy-truncate style: copy to `<name>.<YYYYMMDD-HHMMSS>`, truncate
+in place. Writers keep appending at the new end; lines written in the instant
+between copy and truncate can be lost. Info-level logs carry chat and user ids
+only as `#` + 10-hex HMAC tags (`src/log-redact.ts`, salt in
+`data/.log-id-salt`), never chat names or phone numbers.
+
+`ncl groups delete --id <id> --purge` removes a tenant completely: on top of the
+normal cascade it stops the group's containers, deletes the chats, users, DM
+cache and dropped-message records no surviving group still references (safe on
+a shared number), and deletes the group's OneCLI vault agent.
+
 ## Security Architecture Diagram
 
 ```
