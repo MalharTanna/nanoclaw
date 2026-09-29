@@ -34,6 +34,7 @@ import { idTag } from './log-redact.js';
 import { resolveSession, writeSessionMessage, writeOutboundDirect } from './session-manager.js';
 import { wakeContainer } from './container-runner.js';
 import { isSharedNumber, maybeHandleJoinCode } from './join-codes.js';
+import { maybePostAnswerAllNotice } from './member-notice.js';
 import { isQuotaBlocked, notifyOwnerQuotaReached } from './quota-gate.js';
 import { getSession } from './db/sessions.js';
 import type { AgentGroup, MessagingGroup, MessagingGroupAgent } from './types.js';
@@ -291,6 +292,15 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
   // 3. Fetch wired agents in full (we already know the count is > 0; now
   //    we need their actual rows for fan-out).
   const agents = getMessagingGroupAgents(mg.id);
+
+  // Shared number: a group just switched to "answer every message" gets a
+  // one-time notice so every member knows all messages now reach the assistant.
+  await maybePostAnswerAllNotice(
+    event,
+    mg,
+    agents,
+    getAgentGroup(agents[0]?.agent_group_id ?? '')?.name ?? 'the assistant',
+  );
 
   // 4. Fan-out: evaluate each wired agent independently against engage_mode,
   //    sender_scope, and access gate. An agent that engages gets its own

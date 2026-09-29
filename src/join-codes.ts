@@ -95,7 +95,7 @@ async function reply(event: InboundEvent, text: string): Promise<void> {
   }
 }
 
-const PRIVACY_URL = 'https://miroflow.in/privacy';
+export const PRIVACY_URL = 'https://miroflow.in/privacy';
 
 /**
  * Posted once when a group is linked: the members' notice the legal review
