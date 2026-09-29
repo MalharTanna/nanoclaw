@@ -21,6 +21,7 @@ import type { McpServerConfig } from './container-config.js';
 import { getContainerConfig } from './db/container-configs.js';
 import { readGroupPersona } from './group-persona.js';
 import type { AgentGroup } from './types.js';
+import { tenantLocked } from './tenant-lock.js';
 
 // Fragment holding a template's persona prepend. Imported FIRST (before the
 // shared base) so the persona is the top of the composed system prompt.
@@ -66,9 +67,13 @@ export function composeGroupClaudeMd(group: AgentGroup): void {
 
   // Skill fragments — every skill that ships an `instructions.md`.
   // TODO (shared-source refactor): respect `container.json` skill selection.
+  // Shared installs: tenants never see the tools the tenant lock denies
+  // (sub-agents, self-modification) or the connected-apps gateway.
+  const locked = tenantLocked();
   const skillsHostDir = path.join(process.cwd(), 'container', 'skills');
   if (fs.existsSync(skillsHostDir)) {
     for (const skillName of fs.readdirSync(skillsHostDir)) {
+      if (locked && skillName === 'onecli-gateway') continue;
       const hostFragment = path.join(skillsHostDir, skillName, 'instructions.md');
       if (fs.existsSync(hostFragment)) {
         desired.set(`skill-${skillName}.md`, {
@@ -93,6 +98,7 @@ export function composeGroupClaudeMd(group: AgentGroup): void {
       if (!match) continue;
       const moduleName = match[1];
       if ((moduleName === 'cli' || moduleName === 'scheduling') && cliDisabled) continue;
+      if (locked && (moduleName === 'agents' || moduleName === 'self-mod')) continue;
       desired.set(`module-${moduleName}.md`, {
         type: 'symlink',
         content: `${SHARED_MCP_TOOLS_CONTAINER_BASE}/${entry}`,

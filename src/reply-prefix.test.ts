@@ -3,6 +3,7 @@ import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  adapterPrefixesReplies,
   plainDashesEnabled,
   replyPrefixMode,
   toPlainDashes,
@@ -54,6 +55,27 @@ describe('replyPrefixMode', () => {
     expect(replyPrefixMode()).toBe('group');
     process.env.NANOCLAW_REPLY_PREFIX = 'yes';
     expect(replyPrefixMode()).toBe('off');
+  });
+});
+
+describe('adapterPrefixesReplies', () => {
+  const orig = process.env.ASSISTANT_HAS_OWN_NUMBER;
+  afterEach(() => {
+    if (orig === undefined) delete process.env.ASSISTANT_HAS_OWN_NUMBER;
+    else process.env.ASSISTANT_HAS_OWN_NUMBER = orig;
+  });
+
+  it('is true for WhatsApp on a number shared with a person, so no second prefix is added', () => {
+    process.env.ASSISTANT_HAS_OWN_NUMBER = 'false';
+    expect(adapterPrefixesReplies('whatsapp')).toBe(true);
+    expect(adapterPrefixesReplies('telegram')).toBe(false);
+    process.env.ASSISTANT_HAS_OWN_NUMBER = 'true';
+    expect(adapterPrefixesReplies('whatsapp')).toBe(false);
+  });
+
+  it('is consulted by delivery before the group prefix', () => {
+    const src = fs.readFileSync(path.join(process.cwd(), 'src', 'delivery.ts'), 'utf-8');
+    expect(src).toContain('!adapterPrefixesReplies(msg.channel_type)');
   });
 });
 

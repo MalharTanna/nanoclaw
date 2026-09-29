@@ -15,6 +15,18 @@ export function replyPrefixMode(): 'group' | 'off' {
 }
 
 /**
+ * True when the channel adapter already puts "Name: " in front of every reply:
+ * the WhatsApp adapter does on a number shared with a person
+ * (ASSISTANT_HAS_OWN_NUMBER not true), to tell its own messages apart. A group
+ * prefix on top would read "Miro: *Miro:* ...".
+ */
+export function adapterPrefixesReplies(channelType: string): boolean {
+  if (channelType !== 'whatsapp') return false;
+  const v = process.env.ASSISTANT_HAS_OWN_NUMBER || readEnvFile(['ASSISTANT_HAS_OWN_NUMBER']).ASSISTANT_HAS_OWN_NUMBER;
+  return v !== 'true';
+}
+
+/**
  * Prefix a plain chat message's text with the assistant name. Anything that
  * isn't a simple text message (cards, edits, reactions, files-only) is
  * returned unchanged.

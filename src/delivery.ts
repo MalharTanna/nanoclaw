@@ -32,7 +32,13 @@ import { isUnguarded, type Unguarded } from './guard/index.js';
 import { getContainerConfig } from './db/container-configs.js';
 import { log } from './log.js';
 import { idTag } from './log-redact.js';
-import { plainDashesEnabled, replyPrefixMode, withGroupPrefix, withPlainDashes } from './reply-prefix.js';
+import {
+  adapterPrefixesReplies,
+  plainDashesEnabled,
+  replyPrefixMode,
+  withGroupPrefix,
+  withPlainDashes,
+} from './reply-prefix.js';
 import { normalizeOptions } from './channels/ask-question.js';
 import { clearOutbox, openInboundDb, openOutboundDb, readOutboxFiles } from './session-manager.js';
 import { pauseTypingRefreshAfterDelivery, setTypingAdapter } from './modules/typing/index.js';
@@ -412,7 +418,8 @@ async function deliverMessage(
   // prefix replies with this tenant's bot name.
   let outContent = plainDashesEnabled() ? withPlainDashes(msg.kind, msg.content) : msg.content;
   // The web widget shows the assistant's name itself: no prefix there.
-  if (replyPrefixMode() === 'group' && msg.channel_type !== 'web') {
+  // Nor where the adapter already prefixes every reply (a person's own number).
+  if (replyPrefixMode() === 'group' && msg.channel_type !== 'web' && !adapterPrefixesReplies(msg.channel_type)) {
     outContent = withGroupPrefix(msg.kind, outContent, getContainerConfig(session.agent_group_id)?.assistant_name);
   }
 

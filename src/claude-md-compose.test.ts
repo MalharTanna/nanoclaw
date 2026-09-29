@@ -116,3 +116,40 @@ describe('composeGroupClaudeMd scheduling instructions (ncl tasks reach-in)', ()
     expect(imports).not.toContain('@./.claude-fragments/module-cli.md');
   });
 });
+
+describe('composeGroupClaudeMd on a shared install (tenant-locked)', () => {
+  let origShared: string | undefined;
+  beforeEach(() => {
+    origShared = process.env.NANOCLAW_SHARED_NUMBER;
+  });
+  afterEach(() => {
+    if (origShared === undefined) delete process.env.NANOCLAW_SHARED_NUMBER;
+    else process.env.NANOCLAW_SHARED_NUMBER = origShared;
+  });
+
+  it('keeps reminders but drops sub-agent, self-mod and connected-apps instructions', () => {
+    process.env.NANOCLAW_SHARED_NUMBER = 'true';
+    const ag = group('ag-tenant', 'tenant-group');
+    seed(ag);
+
+    composeGroupClaudeMd(ag);
+
+    const imports = importsOf(ag.folder);
+    expect(imports).toContain('@./.claude-fragments/module-scheduling.md');
+    expect(imports).not.toContain('@./.claude-fragments/module-agents.md');
+    expect(imports).not.toContain('@./.claude-fragments/module-self-mod.md');
+    expect(imports).not.toContain('@./.claude-fragments/skill-onecli-gateway.md');
+  });
+
+  it('keeps them on an own install', () => {
+    process.env.NANOCLAW_SHARED_NUMBER = 'false';
+    const ag = group('ag-own', 'own-group');
+    seed(ag);
+
+    composeGroupClaudeMd(ag);
+
+    const imports = importsOf(ag.folder);
+    expect(imports).toContain('@./.claude-fragments/module-agents.md');
+    expect(imports).toContain('@./.claude-fragments/module-self-mod.md');
+  });
+});

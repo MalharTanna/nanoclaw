@@ -248,6 +248,33 @@ export function computeIsMention(isGroup: boolean, botMentionedInGroup: boolean)
   return botMentionedInGroup ? true : undefined;
 }
 
+/**
+ * MIME type for a file sent as a WhatsApp document. A generic
+ * application/octet-stream makes phones show the file as ".bin" and refuse
+ * to open it, so common office/PDF types are named explicitly.
+ */
+const DOCUMENT_MIMETYPES: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.txt': 'text/plain',
+  '.csv': 'text/csv',
+  '.html': 'text/html',
+  '.json': 'application/json',
+  '.zip': 'application/zip',
+  '.odt': 'application/vnd.oasis.opendocument.text',
+  '.ods': 'application/vnd.oasis.opendocument.spreadsheet',
+  '.svg': 'image/svg+xml',
+};
+
+export function documentMimetype(ext: string): string {
+  return DOCUMENT_MIMETYPES[ext.toLowerCase()] ?? 'application/octet-stream';
+}
+
 /** Map file extension to Baileys media message type. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function buildMediaMessage(data: Buffer, filename: string, ext: string, caption?: string): any {
@@ -265,7 +292,7 @@ function buildMediaMessage(data: Buffer, filename: string, ext: string, caption?
     return { audio: data, mimetype: `audio/${ext.slice(1) === 'mp3' ? 'mpeg' : ext.slice(1)}` };
   }
   // Default: send as document
-  return { document: data, fileName: filename, caption, mimetype: 'application/octet-stream' };
+  return { document: data, fileName: filename, caption, mimetype: documentMimetype(ext) };
 }
 
 registerChannelAdapter('whatsapp', {
