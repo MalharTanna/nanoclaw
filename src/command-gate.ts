@@ -8,6 +8,7 @@
  * - Normal messages: pass through unchanged
  */
 import { hasAdminPrivilege } from './modules/permissions/db/user-roles.js';
+import { TENANT_BLOCKED_COMMANDS, tenantLocked } from './tenant-lock.js';
 
 export type GateResult = { action: 'pass' } | { action: 'filter' } | { action: 'deny'; command: string };
 
@@ -34,6 +35,7 @@ export function gateCommand(content: string, userId: string | null, agentGroupId
   const command = text.split(/\s/)[0].toLowerCase();
 
   if (FILTERED_COMMANDS.has(command)) return { action: 'filter' };
+  if (TENANT_BLOCKED_COMMANDS.has(command) && tenantLocked()) return { action: 'filter' };
 
   if (ADMIN_COMMANDS.has(command)) {
     if (isAdmin(userId, agentGroupId)) {

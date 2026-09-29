@@ -22,6 +22,7 @@ import { getContainerConfig } from '../../db/container-configs.js';
 import { ALLOW, DENY, HOLD, defineGuardedAction } from '../../guard/index.js';
 import { hasDestination } from './db/agent-destinations.js';
 import { getMessagePolicy } from './db/agent-message-policies.js';
+import { TENANT_LOCKED_REASON, tenantLocked } from '../../tenant-lock.js';
 
 /**
  * pending_approvals action string for held a2a messages. Lives here (not in
@@ -43,6 +44,8 @@ export const agentsCreate = defineGuardedAction({
   },
   decide: (input) => {
     if (input.actor.kind !== 'agent') return DENY('create_agent is a container-originated action.');
+    // Shared installs: one agent per customer; the customer is the admin chain.
+    if (tenantLocked()) return DENY(TENANT_LOCKED_REASON);
     const cliScope = getContainerConfig(input.actor.agentGroupId)?.cli_scope ?? 'group';
     if (cliScope === 'global') {
       // Trusted owner agent group — an approval tap on every sub-agent spawn

@@ -9,12 +9,15 @@
  * registry.)
  */
 import { DENY, HOLD, defineGuardedAction, type GuardInput } from '../../guard/index.js';
+import { TENANT_LOCKED_REASON, tenantLocked } from '../../tenant-lock.js';
 
 function selfModDecide(label: string) {
   return (input: GuardInput) => {
     if (input.actor.kind !== 'agent') {
       return DENY(`${label} is a container-originated action.`);
     }
+    // Shared installs: the admin chain is the customer, so approval can't gate this.
+    if (tenantLocked()) return DENY(TENANT_LOCKED_REASON);
     return HOLD(`${label} always requires admin approval from the container path`);
   };
 }

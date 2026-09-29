@@ -17,6 +17,7 @@
  */
 import { getContainerConfig } from '../db/container-configs.js';
 import { ALLOW, DENY, HOLD, type GuardedActionSpec, type GuardInput } from '../guard/index.js';
+import { TENANT_CHAT_RESOURCES, TENANT_LOCKED_REASON, tenantLocked } from '../tenant-lock.js';
 import { GROUP_SCOPE_RESOURCES, type CommandDef } from './registry.js';
 
 /** Dotted catalog action name for a command. */
@@ -53,6 +54,13 @@ function commandDecide(cmd: CommandDef, input: GuardInput) {
   // agent must never alter it — not even with admin approval.
   if (cmd.hostOnly) {
     return DENY(`"${cmd.name}" is operator-only and cannot be run from inside a container.`);
+  }
+
+  // Shared installs: tenant agents only manage their reminders and scheduled
+  // tasks from chat; approvals would go to the customer, so no approval path.
+  if (tenantLocked()) {
+    if (cmd.resource && !TENANT_CHAT_RESOURCES.has(cmd.resource)) return DENY(TENANT_LOCKED_REASON);
+    if (cmd.access === 'approval') return DENY(TENANT_LOCKED_REASON);
   }
 
   const args = input.payload;
