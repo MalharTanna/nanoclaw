@@ -95,6 +95,21 @@ async function reply(event: InboundEvent, text: string): Promise<void> {
   }
 }
 
+const PRIVACY_URL = 'https://miroflow.in/privacy';
+
+/**
+ * Posted once when a group is linked: the members' notice the legal review
+ * asked for (the customer stays responsible for telling their group; this
+ * makes sure everyone in it sees the basics).
+ */
+export function groupNotice(assistantName: string): string {
+  return (
+    `✅ This group is now connected to **${assistantName}**, an AI assistant by Miroflow. Mention me with @ to ask anything.\n\n` +
+    `ℹ️ *For everyone in this group:* messages sent to ${assistantName}, and files shared with it, are processed by Miroflow and its AI provider to reply. ` +
+    `Replies and those messages are kept up to 12 months. Privacy: ${PRIVACY_URL}`
+  );
+}
+
 /**
  * Handle a possible join message from an UNWIRED group. Returns true when the
  * message was a join attempt on a join-code install (so routing stops).
@@ -145,8 +160,9 @@ export async function maybeHandleJoinCode(
   await reply(
     event,
     isGroup
-      ? `✅ This group is now connected to **${armed.assistantName}**. Mention me with @ to ask anything.`
-      : `✅ Your number is now connected to **${armed.assistantName}**. Message me here any time.`,
+      ? groupNotice(armed.assistantName)
+      : `✅ Your number is now connected to **${armed.assistantName}**, an AI assistant by Miroflow. Message me here any time.\n\n` +
+          `ℹ️ What you send here is processed by Miroflow and its AI provider to reply. Privacy: ${PRIVACY_URL}`,
   );
   return true;
 }

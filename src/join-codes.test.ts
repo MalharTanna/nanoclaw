@@ -9,10 +9,11 @@ vi.mock('./delivery.js', () => ({ getDeliveryAdapter: () => ({ deliver }) }));
 import type { InboundEvent } from './channels/adapter.js';
 import {
   _resetJoinCodeCooldownForTest,
+  groupNotice,
+  isSharedNumber,
   joinCodesPath,
   linkRequestsPath,
   matchJoinCode,
-  isSharedNumber,
   maybeHandleJoinCode,
 } from './join-codes.js';
 
@@ -85,6 +86,7 @@ describe('maybeHandleJoinCode', () => {
       expect.objectContaining({ code: 'AB23CD', platformId: '919876543210@s.whatsapp.net' }),
     ]);
     expect(JSON.parse(deliver.mock.calls[0][4]).text).toContain('Your number is now connected to **Miro**');
+    expect(JSON.parse(deliver.mock.calls[0][4]).text).toContain('https://miroflow.in/privacy');
   });
 
   it('refuses a DM whose sender is still an unresolved @lid', async () => {
@@ -154,5 +156,16 @@ describe('isSharedNumber', () => {
       if (orig === undefined) delete process.env.NANOCLAW_SHARED_NUMBER;
       else process.env.NANOCLAW_SHARED_NUMBER = orig;
     }
+  });
+});
+
+describe('group notice', () => {
+  it('tells every member what is processed, for how long, and where the privacy notice is', () => {
+    const text = groupNotice('Miro');
+    expect(text).toContain('connected to **Miro**, an AI assistant by Miroflow');
+    expect(text).toContain('For everyone in this group');
+    expect(text).toContain('processed by Miroflow and its AI provider');
+    expect(text).toContain('12 months');
+    expect(text).toContain('https://miroflow.in/privacy');
   });
 });
