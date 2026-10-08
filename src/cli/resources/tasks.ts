@@ -31,6 +31,7 @@ import {
   type ScheduledTaskRow,
   validateRecurrence,
 } from '../../modules/scheduling/create.js';
+import { getDestinationByTarget } from '../../modules/agent-to-agent/db/agent-destinations.js';
 import { inboundDbPath, withInboundDb } from '../../session-manager.js';
 import { registerResource } from '../crud.js';
 import { appendRunLog } from '../../modules/scheduling/run-log.js';
@@ -105,18 +106,24 @@ function withInbound<T>(session: ScopedSession, fn: (db: Database.Database) => T
   return withInboundDb(session.agent_group_id, session.id, fn);
 }
 
-function parseContent(raw: string): { prompt: string; script: string | null; originSessionId: string | null } {
+function parseContent(raw: string): {
+  prompt: string;
+  script: string | null;
+  originSessionId: string | null;
+  originDestination: string | null;
+} {
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     return {
       prompt: typeof parsed.prompt === 'string' ? parsed.prompt : '',
       script: typeof parsed.script === 'string' ? parsed.script : null,
       originSessionId: typeof parsed.originSessionId === 'string' ? parsed.originSessionId : null,
+      originDestination: typeof parsed.originDestination === 'string' ? parsed.originDestination : null,
     };
   } catch {
     // LEGACY-COMPAT(v1-tasks): plain-string content from rows that predate the
     // JSON envelope. Removable once no pre-v2 session DBs remain in the wild.
-    return { prompt: raw, script: null, originSessionId: null };
+    return { prompt: raw, script: null, originSessionId: null, originDestination: null };
   }
 }
 
@@ -133,6 +140,7 @@ function toOutput(session: ScopedSession, row: TaskRow) {
     prompt: content.prompt.length > 120 ? content.prompt.slice(0, 117) + '...' : content.prompt,
     has_script: content.script ? 1 : 0,
     origin_session_id: content.originSessionId, // which session created the task (null for CLI-created)
+    origin_destination: content.originDestination, // chat the task delivers to by default
     created_at: row.timestamp,
     tries: row.tries,
   };
@@ -186,10 +194,24 @@ function createTask(args: Record<string, unknown>, ctx: CallerContext) {
     script,
     dangerouslyOverrideRecurrenceLimit: bool(args.dangerously_override_recurrence_limit),
   });
+  const originSessionId = ctx.caller === 'agent' ? ctx.sessionId : null;
   const { session, row } = createScheduledTask(group, prepared, {
-    originSessionId: ctx.caller === 'agent' ? ctx.sessionId : null,
+    originSessionId,
+    originDestination: originDestinationOf(group, originSessionId),
   });
   return toOutput(session, row);
+}
+
+/**
+ * The destination name of the chat a task was created from, so the task can
+ * deliver back there by default. Without it a business with several chats
+ * left the firing session guessing (reminders landed in the wrong group).
+ */
+function originDestinationOf(agentGroupId: string, sessionId: string | null | undefined): string | null {
+  if (!sessionId) return null;
+  const mg = getSession(sessionId)?.messaging_group_id;
+  if (!mg) return null;
+  return getDestinationByTarget(agentGroupId, 'channel', mg)?.local_name ?? null;
 }
 
 /**

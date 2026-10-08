@@ -1,4 +1,4 @@
-import { findByRouting } from './destinations.js';
+import { findByName, findByRouting } from './destinations.js';
 import type { MessageInRow } from './db/messages-in.js';
 import { TIMEZONE, formatLocalTime } from './timezone.js';
 
@@ -11,7 +11,15 @@ import { TIMEZONE, formatLocalTime } from './timezone.js';
  */
 export type CommandCategory = 'admin' | 'filtered' | 'passthrough' | 'none';
 
-const ADMIN_COMMANDS = new Set(['/remote-control', '/clear', '/compact', '/context', '/cost', '/files', '/upload-trace']);
+const ADMIN_COMMANDS = new Set([
+  '/remote-control',
+  '/clear',
+  '/compact',
+  '/context',
+  '/cost',
+  '/files',
+  '/upload-trace',
+]);
 const FILTERED_COMMANDS = new Set(['/help', '/login', '/logout', '/doctor', '/config', '/start']);
 
 export interface CommandInfo {
@@ -202,7 +210,10 @@ function originAttr(msg: MessageInRow): string {
 
 function formatTaskMessage(msg: MessageInRow): string {
   const content = parseContent(msg.content);
-  const from = originAttr(msg);
+  // Task rows carry no routing; the chat the task was created in rides in the
+  // content, and is the default delivery target (see the task-run contract).
+  const origin = typeof content.originDestination === 'string' ? findByName(content.originDestination) : undefined;
+  const from = origin ? ` from="${escapeXml(origin.name)}"` : originAttr(msg);
   const time = formatLocalTime(msg.timestamp, TIMEZONE);
   const parts: string[] = [];
   if (content.scriptOutput) {

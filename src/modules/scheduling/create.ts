@@ -126,7 +126,7 @@ export function prepareScheduledTask(input: {
 export function createScheduledTask(
   agentGroupId: string,
   task: PreparedScheduledTask,
-  options?: { status?: 'pending' | 'paused'; originSessionId?: string | null },
+  options?: { status?: 'pending' | 'paused'; originSessionId?: string | null; originDestination?: string | null },
 ): { session: { id: string; agent_group_id: string }; row: ScheduledTaskRow } {
   const id = makeTaskId(task.name);
   const { session } = resolveTaskSession(agentGroupId, id);
@@ -144,6 +144,9 @@ export function createScheduledTask(
         prompt: task.prompt,
         script: task.script,
         originSessionId: options?.originSessionId ?? null,
+        // The chat the task was created in (its destination name): the default
+        // place to deliver when the task fires.
+        originDestination: options?.originDestination ?? null,
       }),
       status: options?.status ?? 'pending',
     });

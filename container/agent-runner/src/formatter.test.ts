@@ -24,12 +24,7 @@ afterEach(() => {
   closeSessionDb();
 });
 
-function insertMessage(
-  id: string,
-  kind: string,
-  content: object,
-  opts?: { timestamp?: string },
-) {
+function insertMessage(id: string, kind: string, content: object, opts?: { timestamp?: string }) {
   const timestamp = opts?.timestamp ?? new Date().toISOString();
   getInboundDb()
     .prepare(
@@ -211,9 +206,7 @@ describe('stripInternalTags', () => {
   });
 
   it('strips multi-line internal tags', () => {
-    expect(stripInternalTags('hello <internal>\nsecret\nstuff\n</internal> world')).toBe(
-      'hello  world',
-    );
+    expect(stripInternalTags('hello <internal>\nsecret\nstuff\n</internal> world')).toBe('hello  world');
   });
 
   it('strips multiple internal tag blocks', () => {
@@ -229,8 +222,24 @@ describe('stripInternalTags', () => {
   });
 
   it('preserves content that surrounds internal tags', () => {
-    expect(stripInternalTags('<internal>thinking</internal>The answer is 42')).toBe(
-      'The answer is 42',
-    );
+    expect(stripInternalTags('<internal>thinking</internal>The answer is 42')).toBe('The answer is 42');
+  });
+});
+
+describe('task origin chat', () => {
+  it('marks the chat a task was created in as its from= destination', () => {
+    getInboundDb()
+      .prepare(
+        `INSERT INTO destinations (name, display_name, type, channel_type, platform_id, agent_group_id)
+         VALUES ('whatsapp-group-two', NULL, 'channel', 'whatsapp', '120363000000000002@g.us', NULL)`,
+      )
+      .run();
+    insertMessage('t-origin', 'task', { prompt: 'Remind about the hearing', originDestination: 'whatsapp-group-two' });
+    expect(formatMessages(getPendingMessages())).toContain('<task from="whatsapp-group-two"');
+  });
+
+  it('ignores an origin that is no longer a destination', () => {
+    insertMessage('t-gone', 'task', { prompt: 'x', originDestination: 'whatsapp-removed' });
+    expect(formatMessages(getPendingMessages())).not.toContain('whatsapp-removed');
   });
 });

@@ -24,6 +24,8 @@ const TEST_DIR = '/tmp/nanoclaw-test-cli-tasks';
 import { initTestDb, closeDb, runMigrations, createAgentGroup } from '../../db/index.js';
 import { createSession, findSessionByAgentGroup, getSessionsByAgentGroup, taskThreadId } from '../../db/sessions.js';
 import { countDueMessages } from '../../db/session-db.js';
+import { createMessagingGroup } from '../../db/messaging-groups.js';
+import { createDestination } from '../../modules/agent-to-agent/db/agent-destinations.js';
 import { inboundDbPath, initSessionFolder } from '../../session-manager.js';
 import { dispatch } from '../dispatch.js';
 import { formatTasksTable } from '../format-tasks.js';
@@ -333,6 +335,54 @@ describe('tasks CLI resource', () => {
     const runRow = pending.find((p) => p.id === fired.row_id);
     expect(runRow?.recurrence).toBeNull(); // never re-armed into a phantom series
     expect(new Date(runRow!.process_after).getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('records the chat it was created from as the default delivery destination', async () => {
+    createMessagingGroup({
+      id: 'mg-wa-2',
+      channel_type: 'whatsapp',
+      platform_id: '120363000000000002@g.us',
+      name: null,
+      is_group: 1,
+      unknown_sender_policy: 'public',
+      created_at: now(),
+    });
+    createDestination({
+      agent_group_id: 'ag-1',
+      local_name: 'whatsapp-group-two',
+      target_type: 'channel',
+      target_id: 'mg-wa-2',
+      created_at: now(),
+    });
+    createSession({
+      id: 'chat-wa-2',
+      agent_group_id: 'ag-1',
+      messaging_group_id: 'mg-wa-2',
+      thread_id: null,
+      agent_provider: null,
+      status: 'active',
+      container_status: 'stopped',
+      last_active: null,
+      created_at: now(),
+    });
+    initSessionFolder('ag-1', 'chat-wa-2');
+
+    const resp = await dispatch(
+      {
+        id: 'req-o',
+        command: 'tasks-create',
+        args: { prompt: 'Remind about the hearing', process_after: '2026-01-15T09:00:00Z' },
+      },
+      agentCtx('ag-1', 'chat-wa-2'),
+    );
+    expect(resp.ok).toBe(true);
+    if (!resp.ok) return;
+    const created = resp.data as { session_id: string; origin_destination: string | null };
+    expect(created.origin_destination).toBe('whatsapp-group-two');
+    const db = new Database(inboundDbPath('ag-1', created.session_id), { readonly: true });
+    const row = db.prepare("SELECT content FROM messages_in WHERE kind = 'task'").get() as { content: string };
+    db.close();
+    expect(JSON.parse(row.content)).toMatchObject({ originDestination: 'whatsapp-group-two' });
   });
 
   it('task object exposes origin_session_id and created_at', async () => {

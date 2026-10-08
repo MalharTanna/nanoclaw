@@ -234,6 +234,91 @@ export function isBotMentionedInGroup(
   });
 }
 
+/** The message a quote-reply points at, as WhatsApp carries it in `contextInfo`. */
+export interface QuotedReply {
+  id: string;
+  /** Display name for the quoted author: the assistant, or the author's number. */
+  sender: string;
+  text: string;
+  /** The quoted message was one of the assistant's own replies. */
+  fromBot: boolean;
+  /** Author JID of the quoted message (needed to download its media). */
+  participant?: string;
+  /** The quoted message itself, when it carries media worth attaching. */
+  mediaMessage?: Record<string, unknown>;
+}
+
+const QUOTE_HOSTS = ['extendedTextMessage', 'imageMessage', 'videoMessage', 'documentMessage', 'audioMessage'] as const;
+const QUOTE_TEXT_MAX = 2000;
+
+/**
+ * Read the quoted message of a WhatsApp quote-reply ("reply" on a message),
+ * so the assistant sees what is being replied to. Returns undefined for a
+ * normal message. Exported for unit testing.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function extractQuotedReply(
+  normalized: any,
+  assistantName: string,
+  botPhoneJid?: string,
+  botLidUser?: string,
+): QuotedReply | undefined {
+  let ctx:
+    | { stanzaId?: string | null; participant?: string | null; quotedMessage?: Record<string, any> | null }
+    | undefined;
+  for (const host of QUOTE_HOSTS) {
+    const c = normalized?.[host]?.contextInfo;
+    if (c?.quotedMessage) {
+      ctx = c;
+      break;
+    }
+  }
+  const q = ctx?.quotedMessage;
+  if (!ctx || !q) return undefined;
+
+  const doc = q.documentMessage ?? q.documentWithCaptionMessage?.message?.documentMessage;
+  let text: string =
+    q.conversation ||
+    q.extendedTextMessage?.text ||
+    q.imageMessage?.caption ||
+    q.videoMessage?.caption ||
+    doc?.caption ||
+    '';
+  const media = q.imageMessage
+    ? '[photo]'
+    : q.videoMessage
+      ? '[video]'
+      : q.audioMessage
+        ? '[voice note]'
+        : doc
+          ? `[document: ${String(doc.fileName ?? 'file')}]`
+          : '';
+  if (media) text = text ? `${media} ${text}` : media;
+
+  // The adapter prefixes replies on a shared number ("Miro: ..."); a group
+  // prefix may follow ("*Miro:* ..."). Either marks the bot as the author.
+  const prefixes = [`${assistantName}: `, `*${assistantName}:* `, `**${assistantName}:** `];
+  let fromBot = false;
+  for (const prefix of prefixes) {
+    while (text.startsWith(prefix)) {
+      fromBot = true;
+      text = text.slice(prefix.length);
+    }
+  }
+  const participant = ctx.participant ?? undefined;
+  const bare = participant?.split(':')[0];
+  if (bare && (bare === botPhoneJid || (botLidUser && bare === `${botLidUser}@lid`))) fromBot = true;
+
+  return {
+    id: String(ctx.stanzaId ?? ''),
+    sender: fromBot ? assistantName : (participant?.split('@')[0] ?? 'someone'),
+    text: text.length > QUOTE_TEXT_MAX ? text.slice(0, QUOTE_TEXT_MAX) + '…' : text,
+    fromBot,
+    participant,
+    mediaMessage: media && media !== '[video]' ? q : undefined,
+  };
+}
+
 /**
  * Compute `InboundMessage.isMention` for a WhatsApp message:
  *   - DMs are always mentions (router auto-engages on the bot's behalf).
@@ -919,6 +1004,19 @@ registerChannelAdapter('whatsapp', {
             // Download media attachments (images, video, audio, documents)
             const attachments = await downloadInboundMedia(msg, normalized);
 
+            // Quote-replies: show the assistant what is being replied to, and
+            // bring a quoted photo/document/voice note along ("summarise this").
+            const quoted = extractQuotedReply(normalized, ASSISTANT_NAME, botPhoneJid, botLidUser);
+            if (quoted?.mediaMessage && attachments.length === 0) {
+              const quotedMsg = {
+                key: { remoteJid: rawJid, id: quoted.id, participant: quoted.participant, fromMe: false },
+                message: quoted.mediaMessage,
+              } as unknown as WAMessage;
+              attachments.push(
+                ...(await downloadInboundMedia(quotedMsg, normalizeMessageContent(quoted.mediaMessage))),
+              );
+            }
+
             // Skip empty protocol messages (no text and no attachments)
             if (!content && attachments.length === 0) continue;
 
@@ -965,7 +1063,9 @@ registerChannelAdapter('whatsapp', {
             // isBotMentionedInGroup(); short version is contextInfo.mentionedJid
             // on text + caption-bearing messages, matched against the bot's
             // phone JID and LID (#2560).
-            const botMentionedInGroup = isGroup && isBotMentionedInGroup(normalized, botPhoneJid, botLidUser);
+            // Replying to one of the assistant's own messages addresses it too.
+            const botMentionedInGroup =
+              isGroup && (isBotMentionedInGroup(normalized, botPhoneJid, botLidUser) || quoted?.fromBot === true);
 
             const inbound: InboundMessage = {
               id: msg.key.id || `wa-${Date.now()}`,
@@ -982,6 +1082,7 @@ registerChannelAdapter('whatsapp', {
                 sender,
                 senderName,
                 ...(attachments.length > 0 && { attachments }),
+                ...(quoted && { replyTo: { id: quoted.id, sender: quoted.sender, text: quoted.text } }),
                 fromMe,
                 isBotMessage,
                 isGroup,

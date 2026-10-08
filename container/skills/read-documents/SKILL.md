@@ -1,7 +1,7 @@
 ---
 name: read-documents
 description: Read and extract content from attachments and files the user sends — Word (.docx/.doc), Excel (.xlsx/.xls/.csv), PowerPoint (.pptx/.ppt), PDF, and images in any format (jpg, png, heic, tiff, bmp, webp, scanned docs). Use whenever a message has an attachment "saved to /workspace/inbox/..." or the user asks you to read, summarize, or pull data from a document, spreadsheet, slide deck, or picture.
-allowed-tools: Read, Bash(pdftotext:*), Bash(soffice:*), Bash(libreoffice:*), Bash(tesseract:*), Bash(pdftoppm:*), Bash(pdfimages:*), Bash(convert:*), Bash(identify:*), Bash(ls:*), Bash(file:*)
+allowed-tools: Read, Bash(pdftotext:*), Bash(pdfinfo:*), Bash(wc:*), Bash(cat:*), Bash(soffice:*), Bash(libreoffice:*), Bash(tesseract:*), Bash(pdftoppm:*), Bash(pdfimages:*), Bash(convert:*), Bash(identify:*), Bash(ls:*), Bash(file:*)
 ---
 
 # Reading documents & images
@@ -24,11 +24,23 @@ The `Read` tool natively renders these to you. No conversion needed.
 - **PDF** — `Read` the `.pdf` path. For PDFs over 10 pages, pass a `pages` range.
 - **Images** `.jpg .jpeg .png .gif .webp` — `Read` the path; you see the image.
 
-If a PDF looks empty or text-only extraction is cleaner (long reports), use:
+### Accuracy rules for PDFs (always)
+
+- **Read the whole document before answering.** For a long PDF, read it in consecutive
+  ranges (`1-20`, `21-40`, ...) until the last page. Never skip middle pages or answer
+  from a sample - orders, agreements and notices often put the key part in the middle.
+- **Also extract the text layer** and check names, numbers, dates, amounts, case numbers
+  and section numbers against it - don't rely on reading the rendered page alone:
 
 ```bash
-pdftotext "/workspace/inbox/<id>/file.pdf" -    # text to stdout; empty output ⇒ scanned, use OCR below
+pdfinfo "/workspace/inbox/<id>/file.pdf" | grep Pages           # how many pages
+pdftotext -layout "/workspace/inbox/<id>/file.pdf" /tmp/file.txt  # keeps table columns aligned
+wc -c /tmp/file.txt   # near-empty ⇒ scanned pages, use OCR below
 ```
+
+- **Quote, don't paraphrase,** exact figures, dates and operative directions, and say which
+  page they are on ("p. 7"). If part of the document was unreadable, say which pages.
+- If text and image disagree, or a value is unclear, say so instead of guessing.
 
 ## Word / PowerPoint / Excel → convert, then Read
 
@@ -58,11 +70,11 @@ invoice, OCR it with tesseract.
 
 ```bash
 # Image → text
-tesseract "/workspace/inbox/<id>/receipt.jpg" /tmp/out && cat /tmp/out.txt
+tesseract "/workspace/inbox/<id>/receipt.jpg" /tmp/out -l eng+guj+hin && cat /tmp/out.txt
 
-# Scanned PDF → rasterize each page → OCR
+# Scanned PDF → rasterize each page → OCR (English + Gujarati + Hindi)
 pdftoppm -png -r 300 "/workspace/inbox/<id>/scan.pdf" /tmp/page
-for p in /tmp/page-*.png; do tesseract "$p" "${p%.png}"; done && cat /tmp/page-*.txt
+for p in /tmp/page-*.png; do tesseract "$p" "${p%.png}" -l eng+guj+hin; done && cat /tmp/page-*.txt
 ```
 
 For a clean photo you can usually just `Read` the image and read it yourself — OCR is for
