@@ -171,6 +171,21 @@ export function parseWhatsAppMentions(text: string): { text: string; mentions: s
 }
 
 /**
+ * Replace `@<lid>` tags with `@<phone>`. WhatsApp now writes a mentioned
+ * member's hidden LID number into the message text; tagging with it renders
+ * as an unknown foreign number ("@+57 9005..."), while the phone number
+ * renders as the member's name. `lidToPhone` maps LID user part -> phone
+ * digits. Exported for unit testing.
+ */
+export function rewriteLidMentions(text: string, lidToPhone: Record<string, string>): string {
+  if (!text.includes('@')) return text;
+  return text.replace(MENTION_RE, (full, lead: string, digits: string) => {
+    const phone = lidToPhone[digits];
+    return phone ? `${lead}@${phone}` : full;
+  });
+}
+
+/**
  * Convert Claude's markdown to WhatsApp-native formatting and extract any
  * `@<phone>` mentions. Code-block regions are passed through untouched so
  * phone-like sequences inside code aren't tagged.
@@ -507,6 +522,13 @@ registerChannelAdapter('whatsapp', {
       lidToPhoneMap[lidUser] = phoneJid;
       // Cached group metadata depends on participant IDs — invalidate
       groupMetadataCache.clear();
+    }
+
+    /** Known LID user part -> phone digits, for rewriting tags in outgoing text. */
+    function lidPhoneDigits(): Record<string, string> {
+      const out: Record<string, string> = {};
+      for (const [lid, phoneJid] of Object.entries(lidToPhoneMap)) out[lid] = phoneJid.split('@')[0];
+      return out;
     }
 
     async function translateJid(jid: string, altJid?: string): Promise<string> {
@@ -1001,6 +1023,23 @@ registerChannelAdapter('whatsapp', {
               content = content.replace(`@${botLidUser}`, `@${ASSISTANT_NAME}`);
             }
 
+            // Other members' LID tags → their phone numbers, so the agent sees
+            // (and later tags) a number WhatsApp can show as the member's name.
+            const lidMentions = [
+              ...(normalized.extendedTextMessage?.contextInfo?.mentionedJid ?? []),
+              ...(normalized.imageMessage?.contextInfo?.mentionedJid ?? []),
+              ...(normalized.videoMessage?.contextInfo?.mentionedJid ?? []),
+              ...(normalized.documentMessage?.contextInfo?.mentionedJid ?? []),
+            ].filter((j): j is string => typeof j === 'string' && j.endsWith('@lid'));
+            if (lidMentions.length > 0 && content.includes('@')) {
+              const map: Record<string, string> = {};
+              for (const lidJid of lidMentions) {
+                const phoneJid = await translateJid(lidJid);
+                if (!phoneJid.endsWith('@lid')) map[lidJid.split('@')[0].split(':')[0]] = phoneJid.split('@')[0];
+              }
+              content = rewriteLidMentions(content, map);
+            }
+
             // Download media attachments (images, video, audio, documents)
             const attachments = await downloadInboundMedia(msg, normalized);
 
@@ -1184,7 +1223,7 @@ registerChannelAdapter('whatsapp', {
               let caption: string | undefined;
               let captionMentions: string[] | undefined;
               if (!captionUsed && text) {
-                const formatted = formatWhatsApp(text);
+                const formatted = formatWhatsApp(rewriteLidMentions(text, lidPhoneDigits()));
                 caption = formatted.text;
                 captionMentions = formatted.mentions.length > 0 ? formatted.mentions : undefined;
               }
@@ -1203,7 +1242,7 @@ registerChannelAdapter('whatsapp', {
         }
 
         if (text) {
-          const { text: formatted, mentions } = formatWhatsApp(text);
+          const { text: formatted, mentions } = formatWhatsApp(rewriteLidMentions(text, lidPhoneDigits()));
           const prefixed = ASSISTANT_HAS_OWN_NUMBER ? formatted : `${ASSISTANT_NAME}: ${formatted}`;
           return sendRawMessage(platformId, prefixed, mentions);
         }

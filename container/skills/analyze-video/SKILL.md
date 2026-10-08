@@ -29,8 +29,17 @@ frames: 16  ->  /tmp/vid/frame-*.jpg
 transcript: /tmp/vid/transcript.txt (212 words)
 ```
 
-(Longer videos take longer — transcription of a few minutes can take ~30–60s. If the
-member's request is time-sensitive, tell them you're watching it.)
+Speech transcription runs at roughly **real time** on this server (a 10-minute video ≈ 10
+minutes). So for any video **longer than about 4 minutes** (check with
+`ffprobe -v error -show_entries format=duration -of csv=p=0 <file>`), do it in two passes:
+
+1. **Quick pass first:** `FIRST_SECONDS=180 sh /app/skills/analyze-video/prep-video.sh "<file>" /tmp/vid-quick`
+   Read the frames (they cover the whole video) and the first 3 minutes of speech, and send
+   a short summary now, saying it covers the start and the full summary will follow.
+2. **Full pass:** run `prep-video.sh "<file>" /tmp/vid` in the background, then send the
+   full summary when it finishes.
+
+Send at most one "watching it" message - never repeat "still watching".
 
 ## 2. Look at it
 

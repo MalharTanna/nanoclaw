@@ -31,6 +31,7 @@ import { runGuarded, type DeliveryGuardSpec, type GuardedDeliveryHandler } from 
 import { isUnguarded, type Unguarded } from './guard/index.js';
 import { getContainerConfig } from './db/container-configs.js';
 import { log } from './log.js';
+import { tenantLocked } from './tenant-lock.js';
 import { idTag } from './log-redact.js';
 import {
   adapterPrefixesReplies,
@@ -318,6 +319,22 @@ async function deliverMessage(
     const { routeAgentMessage } = await import('./modules/agent-to-agent/agent-route.js');
     await routeAgentMessage(msg, session);
     return;
+  }
+
+  // Shared installs: a chat session's sends stay in its own chat. One business
+  // has several chats under one agent group; an agent addressing a sibling
+  // chat posted one group's answer into another group. Task sessions (no
+  // messaging group) keep choosing their destination.
+  if (tenantLocked() && session.messaging_group_id && msg.channel_type && msg.platform_id) {
+    const own = getMessagingGroup(session.messaging_group_id);
+    if (own && (own.channel_type !== msg.channel_type || own.platform_id !== msg.platform_id)) {
+      log.warn('Shared install: cross-chat send redirected to the session chat', {
+        id: msg.id,
+        sessionId: session.id,
+        addressed: idTag(msg.platform_id),
+      });
+      msg = { ...msg, channel_type: own.channel_type, platform_id: own.platform_id, thread_id: null };
+    }
   }
 
   // Permission check: the source agent must be allowed to deliver to this

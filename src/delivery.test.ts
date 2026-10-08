@@ -408,3 +408,77 @@ describe('deliverSessionMessages — task_log rows (one-door task delivery)', ()
     expect(delivered.has('log-1')).toBe(true);
   });
 });
+
+describe('shared install: chat replies stay in their chat', () => {
+  const orig = process.env.NANOCLAW_SHARED_NUMBER;
+  afterEach(() => {
+    if (orig === undefined) delete process.env.NANOCLAW_SHARED_NUMBER;
+    else process.env.NANOCLAW_SHARED_NUMBER = orig;
+  });
+
+  function seedTwoChats(): void {
+    seedAgentAndChannel(); // mg-1 telegram:123
+    createMessagingGroup({
+      id: 'mg-2',
+      channel_type: 'telegram',
+      platform_id: 'telegram:456',
+      name: 'Other Chat',
+      is_group: 1,
+      unknown_sender_policy: 'public',
+      created_at: now(),
+    });
+  }
+
+  function insertTo(sessionId: string, msgId: string, platformId: string): void {
+    const db = new Database(outboundDbPath('ag-1', sessionId));
+    db.prepare(
+      `INSERT INTO messages_out (id, timestamp, kind, platform_id, channel_type, content)
+       VALUES (?, datetime('now'), 'chat', ?, 'telegram', ?)`,
+    ).run(msgId, platformId, JSON.stringify({ text: 'answer' }));
+    db.close();
+  }
+
+  it("redirects a send addressed to a sibling chat back to the session's own chat", async () => {
+    process.env.NANOCLAW_SHARED_NUMBER = 'true';
+    seedTwoChats();
+    const { session } = resolveSession('ag-1', 'mg-1', null, 'shared');
+    insertTo(session.id, 'out-x', 'telegram:456');
+    const targets: string[] = [];
+    setDeliveryAdapter({
+      async deliver(_c, platformId) {
+        targets.push(platformId);
+        return 'p1';
+      },
+    });
+    await deliverSessionMessages(session);
+    expect(targets).toEqual(['telegram:123']);
+  });
+
+  it('leaves cross-chat sends alone on an own install', async () => {
+    process.env.NANOCLAW_SHARED_NUMBER = 'false';
+    seedTwoChats();
+    createMessagingGroupAgent({
+      id: 'mga-2',
+      messaging_group_id: 'mg-2',
+      agent_group_id: 'ag-1',
+      engage_mode: 'mention',
+      engage_pattern: null,
+      sender_scope: 'all',
+      ignored_message_policy: 'drop',
+      session_mode: 'shared',
+      priority: 0,
+      created_at: now(),
+    } as never);
+    const { session } = resolveSession('ag-1', 'mg-1', null, 'shared');
+    insertTo(session.id, 'out-y', 'telegram:456');
+    const targets: string[] = [];
+    setDeliveryAdapter({
+      async deliver(_c, platformId) {
+        targets.push(platformId);
+        return 'p2';
+      },
+    });
+    await deliverSessionMessages(session);
+    expect(targets).toEqual(['telegram:456']);
+  });
+});

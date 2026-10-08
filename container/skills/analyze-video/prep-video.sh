@@ -3,6 +3,9 @@
 # Prepare a video for analysis: sample frames (so the model can SEE it) and
 # transcribe speech (Hindi/Gujarati/English, auto-detected). Prints where the
 # frames and transcript landed. Then the agent Reads the frames + transcript.
+#
+# FIRST_SECONDS=<n> transcribes only the opening n seconds (a quick first pass
+# for long videos); transcription runs at roughly real time on this server.
 set -e
 VIDEO="$1"
 OUT="${2:-/tmp/video-analysis}"
@@ -29,11 +32,18 @@ NF=$(ls "$OUT"/frame-*.jpg 2>/dev/null | wc -l | tr -d ' ')
 # Transcribe speech if the video has an audio stream.
 HAS_AUDIO=$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$VIDEO" 2>/dev/null | head -1)
 if [ -n "$HAS_AUDIO" ]; then
-  ffmpeg -hide_banner -loglevel error -y -i "$VIDEO" -ar 16000 -ac 1 -c:a pcm_s16le "$OUT/audio.wav"
-  whisper-cli -m /opt/whisper/ggml-small.bin -f "$OUT/audio.wav" -l auto -otxt -np -of "$OUT/transcript" 2>/dev/null || true
+  LIMIT=""
+  [ -n "$FIRST_SECONDS" ] && LIMIT="-t $FIRST_SECONDS"
+  # shellcheck disable=SC2086
+  ffmpeg -hide_banner -loglevel error -y -i "$VIDEO" $LIMIT -ar 16000 -ac 1 -c:a pcm_s16le "$OUT/audio.wav"
+  # One thread per CPU the container actually has; greedy decoding without
+  # temperature fallback (much the same text, less time).
+  THREADS=$(nproc 2>/dev/null || echo 2)
+  whisper-cli -m /opt/whisper/ggml-small.bin -f "$OUT/audio.wav" -l auto -t "$THREADS" -bs 1 -bo 1 -nf -otxt -np -of "$OUT/transcript" 2>/dev/null || true
   rm -f "$OUT/audio.wav"
 fi
 
+echo "duration: ${DUR}s${FIRST_SECONDS:+ (speech transcribed for the first ${FIRST_SECONDS}s only)}"
 echo "frames: $NF  ->  $OUT/frame-*.jpg"
 if [ -f "$OUT/transcript.txt" ] && [ -s "$OUT/transcript.txt" ]; then
   echo "transcript: $OUT/transcript.txt ($(wc -w < "$OUT/transcript.txt" | tr -d ' ') words)"
