@@ -524,10 +524,31 @@ registerChannelAdapter('whatsapp', {
       groupMetadataCache.clear();
     }
 
-    /** Known LID user part -> phone digits, for rewriting tags in outgoing text. */
-    function lidPhoneDigits(): Record<string, string> {
+    /**
+     * LID user part -> phone digits for every `@<digits>` tag in outgoing text,
+     * from the in-memory map or WhatsApp's own LID store (survives restarts).
+     */
+    async function lidPhoneDigits(text: string): Promise<Record<string, string>> {
       const out: Record<string, string> = {};
-      for (const [lid, phoneJid] of Object.entries(lidToPhoneMap)) out[lid] = phoneJid.split('@')[0];
+      for (const m of text.matchAll(MENTION_RE)) {
+        const digits = m[2];
+        if (out[digits]) continue;
+        const known = lidToPhoneMap[digits];
+        if (known) {
+          out[digits] = known.split('@')[0];
+          continue;
+        }
+        try {
+          const pn = await sock.signalRepository.lidMapping.getPNForLID(`${digits}@lid`);
+          if (pn) {
+            const phone = pn.split('@')[0].split(':')[0];
+            setLidPhoneMapping(digits, `${phone}@s.whatsapp.net`);
+            out[digits] = phone;
+          }
+        } catch {
+          /* not a LID we know - leave the tag as written */
+        }
+      }
       return out;
     }
 
@@ -1223,7 +1244,7 @@ registerChannelAdapter('whatsapp', {
               let caption: string | undefined;
               let captionMentions: string[] | undefined;
               if (!captionUsed && text) {
-                const formatted = formatWhatsApp(rewriteLidMentions(text, lidPhoneDigits()));
+                const formatted = formatWhatsApp(rewriteLidMentions(text, await lidPhoneDigits(text)));
                 caption = formatted.text;
                 captionMentions = formatted.mentions.length > 0 ? formatted.mentions : undefined;
               }
@@ -1242,7 +1263,7 @@ registerChannelAdapter('whatsapp', {
         }
 
         if (text) {
-          const { text: formatted, mentions } = formatWhatsApp(rewriteLidMentions(text, lidPhoneDigits()));
+          const { text: formatted, mentions } = formatWhatsApp(rewriteLidMentions(text, await lidPhoneDigits(text)));
           const prefixed = ASSISTANT_HAS_OWN_NUMBER ? formatted : `${ASSISTANT_NAME}: ${formatted}`;
           return sendRawMessage(platformId, prefixed, mentions);
         }
