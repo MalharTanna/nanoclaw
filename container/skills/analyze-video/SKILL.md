@@ -1,6 +1,6 @@
 ---
 name: analyze-video
-description: Watch and analyze a video a member sends — sample its frames (so you can SEE what happens) and transcribe its speech (Hindi/Gujarati/English, auto-detected), then answer questions or do whatever task the member asked about it. Use whenever a message has a video attachment, or someone asks you to watch/check/summarize/analyze a video or video clip.
+description: Watch and analyze a video a member sends — sample its frames (so you can SEE what happens) and transcribe its speech (English and Indian languages, auto-detected), then answer questions or do whatever task the member asked about it. Use whenever a message has a video attachment, or someone asks you to watch/check/summarize/analyze a video or video clip.
 allowed-tools: Read, Bash(sh:*), Bash(bash:*), Bash(ffmpeg:*), Bash(ffprobe:*), Bash(whisper-cli:*), Bash(ls:*), Bash(cat:*)
 ---
 
@@ -13,8 +13,8 @@ When a member sends a video, the formatter notes it like:
 ```
 
 You can't watch an .mp4 directly, so prepare it first: one helper samples **frames**
-(you view them) and **transcribes the speech** (whatever language — Hindi, Gujarati,
-English; auto-detected).
+(you view them) and **transcribes the speech** (English or any Indian language,
+auto-detected; if it comes out in the wrong language, rerun with e.g. `WHISPER_LANG=mr`).
 
 ## 1. Prepare the video
 

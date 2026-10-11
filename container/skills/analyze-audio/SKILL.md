@@ -1,6 +1,6 @@
 ---
 name: analyze-audio
-description: Listen to a voice note or audio file a member sends — transcribe the speech (Hindi/Gujarati/English, auto-detected), then act on it: answer their question, or pull out the tasks/requests they spoke and record them. Use whenever a message has an audio/voice attachment, or someone asks you to listen to / transcribe / act on a voice note or recording.
+description: Listen to a voice note or audio file a member sends — transcribe the speech (English and Indian languages, auto-detected), then act on it: answer their question, or pull out the tasks/requests they spoke and record them. Use whenever a message has an audio/voice attachment, or someone asks you to listen to / transcribe / act on a voice note or recording.
 allowed-tools: Read, Bash(sh:*), Bash(bash:*), Bash(ffmpeg:*), Bash(ffprobe:*), Bash(whisper-cli:*), Bash(cat:*), Bash(ls:*)
 ---
 
@@ -49,6 +49,10 @@ member explicitly asked for a transcript.
 
 - Works in any wired group or DM; members summon you the normal way (say "miro" with the
   voice note).
-- Languages are auto-detected — Hindi, Gujarati, English, or mixed. If a transcript looks
-  garbled, the audio may be very noisy; say so rather than guessing.
+- Languages are auto-detected: English and Indian languages (Hindi, Gujarati, Marathi,
+  Bengali, Tamil, Telugu, Kannada, Malayalam, Punjabi). If the transcript came out in the
+  wrong language or script, run it again with the language forced, e.g.
+  `WHISPER_LANG=ta transcribe-audio.sh <file>` (hi, gu, mr, bn, ta, te, kn, ml, pa).
+  Odia speech is not supported by the transcriber: say so and ask for a text summary.
+  If a transcript looks garbled, the audio may be very noisy; say so rather than guessing.
 - For video (with or without sound), use the `analyze-video` skill instead.

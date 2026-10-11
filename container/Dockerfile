@@ -66,8 +66,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 #   - libreoffice (headless): convert any Office format incl. legacy
 #     doc/xls/ppt and odt/ods/odp → pdf/txt/csv via `soffice --headless`.
 #   - poppler-utils: pdftotext (fast text PDFs) + pdftoppm (rasterize for OCR).
-#   - tesseract-ocr (+eng, guj, hin): OCR scanned PDFs and photos of documents,
-#     including Gujarati and Hindi papers.
+#   - tesseract-ocr (+eng and Indian languages: guj, hin, mar, ben, tam, tel,
+#     kan, mal, pan, ori): OCR scanned PDFs and photos of documents.
 #   - imagemagick + libheif1: convert exotic image formats (tiff/bmp/heic) → png
 #     so the Read tool can view them.
 #   - weasyprint: pure-Python HTML/CSS → PDF renderer (no browser/GPU). Powers the
@@ -88,6 +88,14 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         tesseract-ocr-eng \
         tesseract-ocr-guj \
         tesseract-ocr-hin \
+        tesseract-ocr-mar \
+        tesseract-ocr-ben \
+        tesseract-ocr-tam \
+        tesseract-ocr-tel \
+        tesseract-ocr-kan \
+        tesseract-ocr-mal \
+        tesseract-ocr-pan \
+        tesseract-ocr-ori \
         imagemagick \
         libheif1 \
         weasyprint \

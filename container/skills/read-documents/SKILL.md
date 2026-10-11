@@ -68,13 +68,29 @@ Notes:
 If `pdftotext` returns nothing (scanned/photographed), or the user sends a photo of a bill/
 invoice, OCR it with tesseract.
 
-```bash
-# Image → text
-tesseract "/workspace/inbox/<id>/receipt.jpg" /tmp/out -l eng+guj+hin && cat /tmp/out.txt
+Pick the language pack by the script you see (look at the image first): always `eng`, plus
+the document's language. Using only the packs you need is faster and more accurate.
 
-# Scanned PDF → rasterize each page → OCR (English + Gujarati + Hindi)
+| Script on the page | `-l` |
+|---|---|
+| Gujarati (ગુજરાતી) | `eng+guj` |
+| Devanagari: Hindi or Marathi | `eng+hin+mar` |
+| Bengali (বাংলা) | `eng+ben` |
+| Tamil (தமிழ்) | `eng+tam` |
+| Telugu (తెలుగు) | `eng+tel` |
+| Kannada (ಕನ್ನಡ) | `eng+kan` |
+| Malayalam (മലയാളം) | `eng+mal` |
+| Gurmukhi: Punjabi (ਪੰਜਾਬੀ) | `eng+pan` |
+| Odia (ଓଡ଼ିଆ) | `eng+ori` |
+| Not sure / mixed Gujarat papers | `eng+guj+hin` |
+
+```bash
+# Image → text (example: Gujarati)
+tesseract "/workspace/inbox/<id>/receipt.jpg" /tmp/out -l eng+guj && cat /tmp/out.txt
+
+# Scanned PDF → rasterize each page → OCR (example: Tamil)
 pdftoppm -png -r 300 "/workspace/inbox/<id>/scan.pdf" /tmp/page
-for p in /tmp/page-*.png; do tesseract "$p" "${p%.png}" -l eng+guj+hin; done && cat /tmp/page-*.txt
+for p in /tmp/page-*.png; do tesseract "$p" "${p%.png}" -l eng+tam; done && cat /tmp/page-*.txt
 ```
 
 For a clean photo you can usually just `Read` the image and read it yourself — OCR is for

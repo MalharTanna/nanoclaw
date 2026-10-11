@@ -1,7 +1,7 @@
 #!/bin/sh
 # transcribe-audio.sh <audio-file> [outdir]
 # Transcribe a voice note / audio file (any format: ogg/opus, mp3, m4a, wav,
-# aac…) to text. Language auto-detected (Hindi/Gujarati/English/…). Prints where
+# aac…) to text. Language auto-detected; set WHISPER_LANG=ta (etc.) to force one. Prints where
 # the transcript landed; the agent then reads it and acts on it.
 set -e
 AUDIO="$1"
@@ -18,7 +18,7 @@ rm -f "$OUT"/transcript.txt "$OUT"/audio.wav 2>/dev/null || true
 ffmpeg -hide_banner -loglevel error -y -i "$AUDIO" -ar 16000 -ac 1 -c:a pcm_s16le "$OUT/audio.wav"
 DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$OUT/audio.wav" 2>/dev/null | cut -d. -f1)
 
-whisper-cli -m /opt/whisper/ggml-small.bin -f "$OUT/audio.wav" -l auto -t "$(nproc)" -bs 1 -bo 1 -nf -otxt -np -of "$OUT/transcript" 2>/dev/null || true
+whisper-cli -m /opt/whisper/ggml-small.bin -f "$OUT/audio.wav" -l "${WHISPER_LANG:-auto}" -t "$(nproc)" -bs 1 -bo 1 -nf -otxt -np -of "$OUT/transcript" 2>/dev/null || true
 rm -f "$OUT/audio.wav"
 
 if [ -f "$OUT/transcript.txt" ] && [ -s "$OUT/transcript.txt" ]; then

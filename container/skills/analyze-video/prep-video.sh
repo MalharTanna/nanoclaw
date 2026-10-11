@@ -1,7 +1,7 @@
 #!/bin/sh
 # prep-video.sh <video> [outdir]
 # Prepare a video for analysis: sample frames (so the model can SEE it) and
-# transcribe speech (Hindi/Gujarati/English, auto-detected). Prints where the
+# transcribe speech (English and Indian languages, auto-detected; WHISPER_LANG=<code> forces one). Prints where the
 # frames and transcript landed. Then the agent Reads the frames + transcript.
 #
 # FIRST_SECONDS=<n> transcribes only the opening n seconds (a quick first pass
@@ -39,7 +39,7 @@ if [ -n "$HAS_AUDIO" ]; then
   # One thread per CPU the container actually has; greedy decoding without
   # temperature fallback (much the same text, less time).
   THREADS=$(nproc 2>/dev/null || echo 2)
-  whisper-cli -m /opt/whisper/ggml-small.bin -f "$OUT/audio.wav" -l auto -t "$THREADS" -bs 1 -bo 1 -nf -otxt -np -of "$OUT/transcript" 2>/dev/null || true
+  whisper-cli -m /opt/whisper/ggml-small.bin -f "$OUT/audio.wav" -l "${WHISPER_LANG:-auto}" -t "$THREADS" -bs 1 -bo 1 -nf -otxt -np -of "$OUT/transcript" 2>/dev/null || true
   rm -f "$OUT/audio.wav"
 fi
 
