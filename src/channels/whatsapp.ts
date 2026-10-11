@@ -452,6 +452,28 @@ registerChannelAdapter('whatsapp', {
     }
     const sentMsgPath = (id: string) => path.join(sentMsgDir, encodeURIComponent(id));
     let sentWriteCount = 0;
+    // Copies of sent messages are kept at most SENT_MSG_MAX_AGE_MS (the Privacy
+    // Notice promises up to 14 days) and at most SENT_MSG_DISK_MAX files.
+    const SENT_MSG_MAX_AGE_MS = 14 * 24 * 60 * 60_000;
+    const SENT_MSG_DISK_MAX = 5000;
+    function pruneSentStore(): void {
+      try {
+        const cutoff = Date.now() - SENT_MSG_MAX_AGE_MS;
+        const files = fs
+          .readdirSync(sentMsgDir)
+          .map((f) => ({ f, t: fs.statSync(path.join(sentMsgDir, f)).mtimeMs }))
+          .sort((a, b) => a.t - b.t);
+        files.forEach(({ f, t }, i) => {
+          if (t < cutoff || i < files.length - SENT_MSG_DISK_MAX) fs.unlinkSync(path.join(sentMsgDir, f));
+        });
+      } catch {
+        /* ignore prune failures */
+      }
+    }
+    pruneSentStore();
+    const sentPruneTimer = setInterval(pruneSentStore, 6 * 60 * 60_000);
+    sentPruneTimer.unref?.();
+
     function cacheSentMessage(id: string | null | undefined, message: unknown): void {
       if (!id || !message) return;
       sentMessageCache.set(id, message);
@@ -465,21 +487,8 @@ registerChannelAdapter('whatsapp', {
       } catch {
         /* best effort — re-send recovery is opportunistic */
       }
-      // Bound the on-disk store: prune the oldest beyond a cap, periodically.
-      if (++sentWriteCount % 256 === 0) {
-        try {
-          const SENT_MSG_DISK_MAX = 5000;
-          const files = fs
-            .readdirSync(sentMsgDir)
-            .map((f) => ({ f, t: fs.statSync(path.join(sentMsgDir, f)).mtimeMs }))
-            .sort((a, b) => a.t - b.t);
-          for (let i = 0; i < files.length - SENT_MSG_DISK_MAX; i++) {
-            fs.unlinkSync(path.join(sentMsgDir, files[i].f));
-          }
-        } catch {
-          /* ignore prune failures */
-        }
-      }
+      // Bound the on-disk store periodically (age and count).
+      if (++sentWriteCount % 256 === 0) pruneSentStore();
     }
     function loadSentMessage(id: string): proto.IMessage | undefined {
       try {
