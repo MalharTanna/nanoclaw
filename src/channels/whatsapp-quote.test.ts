@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractQuotedReply } from './whatsapp.js';
+import { extractQuotedReply, hideChatListMatches } from './whatsapp.js';
 
 const reply = (quotedMessage: object, participant = '919900000001@s.whatsapp.net') => ({
   extendedTextMessage: {
@@ -48,5 +48,28 @@ describe('extractQuotedReply', () => {
     expect(photo?.text).toBe('[photo] site photo');
     const video = extractQuotedReply(reply({ videoMessage: {} }), 'Miro');
     expect(video?.mediaMessage).toBeUndefined();
+  });
+});
+
+describe('clearing the bot number\'s chats after each reply', () => {
+  it('WHATSAPP_HIDE_CHAT_JIDS takes a list of chats or "all"', () => {
+    const g = '120363000000000001@g.us';
+    expect(hideChatListMatches('', g)).toBe(false);
+    expect(hideChatListMatches(`${g}, 919800000000@s.whatsapp.net`, g)).toBe(true);
+    expect(hideChatListMatches('919800000000@s.whatsapp.net', g)).toBe(false);
+    expect(hideChatListMatches(' ALL ', g)).toBe(true);
+  });
+
+  it('quoted replies need nothing from the cleared chat: text, author and media come inside the reply itself', () => {
+    // After a clear the bot phone has no copy of the quoted message; everything
+    // used here arrives in the user's reply (contextInfo.quotedMessage).
+    const botReply = extractQuotedReply(reply({ conversation: '*Miro:* Court 19 is at Sr. No. 42' }), 'Miro');
+    expect(botReply).toMatchObject({ fromBot: true, text: 'Court 19 is at Sr. No. 42' });
+    const doc = extractQuotedReply(
+      reply({ documentMessage: { fileName: 'order.pdf', mimetype: 'application/pdf', mediaKey: 'k', directPath: '/d' } }),
+      'Miro',
+    );
+    expect(doc?.text).toContain('[document: order.pdf]');
+    expect(doc?.mediaMessage).toBeTruthy();
   });
 });

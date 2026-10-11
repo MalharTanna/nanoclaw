@@ -272,6 +272,19 @@ const QUOTE_TEXT_MAX = 2000;
  * normal message. Exported for unit testing.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+/**
+ * WHATSAPP_HIDE_CHAT_JIDS: a comma-separated list of chat JIDs, or `all`. The
+ * Miroflow number uses `all`: its WhatsApp chats are cleared after each reply
+ * (history stays in the session DBs, for memory and exports).
+ */
+export function hideChatListMatches(list: string, jid: string): boolean {
+  const entries = list
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  return entries.includes('all') || entries.includes(jid.toLowerCase());
+}
+
 export function extractQuotedReply(
   normalized: any,
   assistantName: string,
@@ -695,6 +708,30 @@ registerChannelAdapter('whatsapp', {
       }
     }
 
+    // Chats listed in WHATSAPP_HIDE_CHAT_JIDS (comma-separated JIDs, or `all`
+    // for every chat the bot replies in) are cleared from this account's devices — including the primary phone —
+    // right after each bot reply, via an app-state clearChat sync. Only the
+    // WhatsApp copy goes; session DBs and agent memory are untouched, and
+    // other participants' phones are unaffected. `clear` (not `delete`)
+    // because a group chat can't be deleted while still a member. Read per
+    // call so .env edits apply without a restart.
+    function hideChatEnabled(jid: string): boolean {
+      return hideChatListMatches(readEnvFile(['WHATSAPP_HIDE_CHAT_JIDS']).WHATSAPP_HIDE_CHAT_JIDS || '', jid);
+    }
+
+    async function clearChatAfterReply(jid: string, sent: WAMessage | undefined): Promise<void> {
+      if (!sent?.key?.id || !sent.messageTimestamp || !hideChatEnabled(jid)) return;
+      try {
+        await sock.chatModify(
+          { clear: true, lastMessages: [{ key: sent.key, messageTimestamp: sent.messageTimestamp }] },
+          jid,
+        );
+        log.info('Cleared WhatsApp chat after reply', { jid: idTag(jid) });
+      } catch (err) {
+        log.warn('Failed to clear WhatsApp chat after reply', { jid: idTag(jid), err });
+      }
+    }
+
     async function flushOutgoingQueue(): Promise<void> {
       if (flushing || outgoingQueue.length === 0) return;
       flushing = true;
@@ -708,6 +745,7 @@ registerChannelAdapter('whatsapp', {
           if (sent?.key?.id && sent.message) {
             cacheSentMessage(sent.key.id, sent.message);
           }
+          await clearChatAfterReply(item.jid, sent);
         }
       } finally {
         flushing = false;
@@ -776,6 +814,7 @@ registerChannelAdapter('whatsapp', {
         if (sent?.key?.id && sent.message) {
           cacheSentMessage(sent.key.id, sent.message);
         }
+        await clearChatAfterReply(jid, sent);
         return sent?.key?.id ?? undefined;
       } catch (err) {
         outgoingQueue.push({ jid, text, mentions });
@@ -1263,6 +1302,7 @@ registerChannelAdapter('whatsapp', {
               if (sent?.key?.id && sent.message) {
                 cacheSentMessage(sent.key.id, sent.message);
               }
+              await clearChatAfterReply(platformId, sent);
               if (caption) captionUsed = true;
             } catch (err) {
               log.error('Failed to send file', { platformId: idTag(platformId), err });
