@@ -31,7 +31,8 @@ import {
   type ScheduledTaskRow,
   validateRecurrence,
 } from '../../modules/scheduling/create.js';
-import { getDestinationByTarget } from '../../modules/agent-to-agent/db/agent-destinations.js';
+import { getDestinationByName, getDestinationByTarget } from '../../modules/agent-to-agent/db/agent-destinations.js';
+import { tenantLocked } from '../../tenant-lock.js';
 import { inboundDbPath, withInboundDb } from '../../session-manager.js';
 import { registerResource } from '../crud.js';
 import { appendRunLog } from '../../modules/scheduling/run-log.js';
@@ -99,6 +100,54 @@ function selectedSessions(args: Record<string, unknown>, ctx: CallerContext): Sc
 
   if (ctx.caller === 'agent') return [];
   return getActiveSessions().map((s) => ({ id: s.id, agent_group_id: s.agent_group_id }));
+}
+
+/**
+ * The chat a task belongs to: the messaging group of the session that created
+ * it, else the target of its recorded delivery destination. Null when the task
+ * cannot be attributed (host-created or pre-origin rows).
+ */
+function taskChat(agentGroupId: string, raw: string): string | null {
+  const c = parseContent(raw);
+  const fromSession = c.originSessionId ? getSession(c.originSessionId)?.messaging_group_id : null;
+  if (fromSession) return fromSession;
+  if (c.originDestination) {
+    const d = getDestinationByName(agentGroupId, c.originDestination);
+    if (d?.target_type === 'channel') return d.target_id;
+  }
+  return null;
+}
+
+/**
+ * Shared-number (Miroflow) installs: one agent group serves every chat of a
+ * business, so without this a group could list, change or cancel reminders set
+ * in another group or a personal chat (and see their names). A chat caller only
+ * sees tasks created in its own chat; a task run sees its own chat's tasks.
+ * Returns undefined when no restriction applies (host callers, personal installs).
+ */
+function chatScope(ctx: CallerContext): { chat: string | null } | undefined {
+  if (ctx.caller !== 'agent' || !tenantLocked()) return undefined;
+  if (ctx.messagingGroupId) return { chat: ctx.messagingGroupId };
+  // A task run: scope to the chat its own series was created in.
+  const sess = getSession(ctx.sessionId);
+  if (sess?.thread_id && isTaskThread(sess.thread_id)) {
+    const series = sess.thread_id.slice(`${TASKS_SYSTEM_THREAD_ID}:`.length);
+    const row = withInbound({ id: sess.id, agent_group_id: sess.agent_group_id }, (db) => selectTask(db, series));
+    if (row) return { chat: taskChat(sess.agent_group_id, row.content) };
+  }
+  return { chat: null }; // unattributable caller: sees nothing
+}
+
+function inScope(scope: { chat: string | null } | undefined, session: ScopedSession, row: { content: string }): boolean {
+  if (!scope) return true;
+  return scope.chat !== null && taskChat(session.agent_group_id, row.content) === scope.chat;
+}
+
+/** Whether the live series `id` in this session belongs to the caller's chat. */
+function seriesInScope(db: Database.Database, session: ScopedSession, id: string, scope: { chat: string | null } | undefined): boolean {
+  if (!scope) return true;
+  const row = selectTask(db, id);
+  return !!row && inScope(scope, session, row);
 }
 
 function withInbound<T>(session: ScopedSession, fn: (db: Database.Database) => T): T | undefined {
@@ -300,10 +349,13 @@ function enrichListRow(db: Database.Database, base: ReturnType<typeof toOutput>)
 
 function listTasks(args: Record<string, unknown>, ctx: CallerContext) {
   const status = statusFilter(args);
+  const scope = chatScope(ctx);
   const rows = [];
   for (const session of selectedSessions(args, ctx)) {
     const sessionRows = withInbound(session, (db) =>
-      selectLiveTasks(db, status).map((row) => enrichListRow(db, toOutput(session, row))),
+      selectLiveTasks(db, status)
+        .filter((row) => inScope(scope, session, row))
+        .map((row) => enrichListRow(db, toOutput(session, row))),
     );
     if (sessionRows) rows.push(...sessionRows);
   }
@@ -312,10 +364,11 @@ function listTasks(args: Record<string, unknown>, ctx: CallerContext) {
 
 function getTask(args: Record<string, unknown>, ctx: CallerContext) {
   const id = taskId(args);
+  const scope = chatScope(ctx);
   for (const session of selectedSessions(args, ctx)) {
     const found = withInbound(session, (db) => {
       const row = selectTask(db, id);
-      if (!row) return undefined;
+      if (!row || !inScope(scope, session, row)) return undefined;
       const seriesKey = row.series_id ?? row.row_id;
       const stats = seriesStats(db, seriesKey);
       const content = parseContent(row.content);
@@ -340,9 +393,10 @@ function mutateTask(
   fn: (db: Database.Database, id: string) => number,
 ) {
   const id = taskId(args);
+  const scope = chatScope(ctx);
   let touched = 0;
   for (const session of selectedSessions(args, ctx)) {
-    touched += withInbound(session, (db) => fn(db, id)) ?? 0;
+    touched += withInbound(session, (db) => (seriesInScope(db, session, id, scope) ? fn(db, id) : 0)) ?? 0;
   }
   if (touched === 0) throw new Error(`no live task matched: ${id}`);
   return { series_id: id, touched };
@@ -350,6 +404,7 @@ function mutateTask(
 
 function updateTaskCommand(args: Record<string, unknown>, ctx: CallerContext) {
   const id = taskId(args);
+  const scope = chatScope(ctx);
   const update: TaskUpdate = {};
   if (typeof args.prompt === 'string') update.prompt = args.prompt;
   if (args.process_after !== undefined) update.processAfter = parseProcessAfter(args.process_after);
@@ -363,7 +418,7 @@ function updateTaskCommand(args: Record<string, unknown>, ctx: CallerContext) {
     if (script === undefined) {
       for (const session of selectedSessions(args, ctx)) {
         const row = withInbound(session, (db) => selectTask(db, id));
-        if (row) {
+        if (row && inScope(scope, session, row)) {
           scriptAfter = parseContent(row.content).script;
           break;
         }
@@ -378,7 +433,7 @@ function updateTaskCommand(args: Record<string, unknown>, ctx: CallerContext) {
 
   let touched = 0;
   for (const session of selectedSessions(args, ctx)) {
-    touched += withInbound(session, (db) => updateTask(db, id, update)) ?? 0;
+    touched += withInbound(session, (db) => (seriesInScope(db, session, id, scope) ? updateTask(db, id, update) : 0)) ?? 0;
   }
   if (touched === 0) throw new Error(`no live task matched: ${id}`);
   return { series_id: id, touched, fields };
@@ -389,9 +444,17 @@ function cancelTaskCommand(args: Record<string, unknown>, ctx: CallerContext) {
     return mutateTask(args, ctx, cancelTask);
   }
 
+  const scope = chatScope(ctx);
   let touched = 0;
   for (const session of selectedSessions(args, ctx)) {
-    touched += withInbound(session, cancelAllTasks) ?? 0;
+    touched +=
+      withInbound(session, (db) => {
+        if (!scope) return cancelAllTasks(db);
+        // Only this chat's series: cancel them one by one.
+        return selectLiveTasks(db)
+          .filter((row) => inScope(scope, session, row))
+          .reduce((n, row) => n + cancelTask(db, row.series_id ?? row.row_id), 0);
+      }) ?? 0;
   }
   return { cancelled: touched };
 }
@@ -405,10 +468,11 @@ function cancelTaskCommand(args: Record<string, unknown>, ctx: CallerContext) {
  */
 function runTaskCommand(args: Record<string, unknown>, ctx: CallerContext) {
   const id = taskId(args);
+  const scope = chatScope(ctx);
   for (const session of selectedSessions(args, ctx)) {
     const fired = withInbound(session, (db) => {
       const row = selectTask(db, id);
-      if (!row) return undefined;
+      if (!row || !inScope(scope, session, row)) return undefined;
       const seriesKey = row.series_id ?? row.row_id;
       const rowId = makeTaskId(`${seriesKey}-run`);
       // recurrence=NULL is load-bearing: a run-now row must not be re-armed by

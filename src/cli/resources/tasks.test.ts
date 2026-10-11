@@ -385,6 +385,87 @@ describe('tasks CLI resource', () => {
     expect(JSON.parse(row.content)).toMatchObject({ originDestination: 'whatsapp-group-two' });
   });
 
+  describe('shared-number installs scope tasks to the calling chat', () => {
+    function chat(mg: string, session: string): CallerContext {
+      createMessagingGroup({
+        id: mg,
+        channel_type: 'whatsapp',
+        platform_id: `${mg}@g.us`,
+        name: null,
+        is_group: 1,
+        unknown_sender_policy: 'public',
+        created_at: now(),
+      });
+      createDestination({ agent_group_id: 'ag-1', local_name: `whatsapp-${mg}`, target_type: 'channel', target_id: mg, created_at: now() });
+      createSession({
+        id: session,
+        agent_group_id: 'ag-1',
+        messaging_group_id: mg,
+        thread_id: null,
+        agent_provider: null,
+        status: 'active',
+        container_status: 'stopped',
+        last_active: null,
+        created_at: now(),
+      });
+      initSessionFolder('ag-1', session);
+      return { caller: 'agent', agentGroupId: 'ag-1', sessionId: session, messagingGroupId: mg };
+    }
+    async function create(ctx: CallerContext, name: string): Promise<string> {
+      const r = await dispatch({ id: `c-${name}`, command: 'tasks-create', args: { name, prompt: name, process_after: '2999-01-01T00:00:00Z' } }, ctx);
+      if (!r.ok) throw new Error(JSON.stringify(r));
+      return (r.data as { series_id: string }).series_id;
+    }
+    async function listIds(ctx: CallerContext): Promise<string[]> {
+      const r = await dispatch({ id: 'l', command: 'tasks-list', args: {} }, ctx);
+      if (!r.ok) throw new Error(JSON.stringify(r));
+      return (r.data as Array<{ series_id: string }>).map((t) => t.series_id);
+    }
+
+    afterEach(() => {
+      delete process.env.NANOCLAW_SHARED_NUMBER;
+    });
+
+    it('a chat sees and changes only its own tasks; cancel --all stays in the chat', async () => {
+      const a = chat('mg-a', 'chat-a');
+      const b = chat('mg-b', 'chat-b');
+      const ta = await create(a, 'icards');
+      const tb = await create(b, 'court-watch');
+
+      // Personal installs keep the group-wide view.
+      expect((await listIds(a)).sort()).toEqual([ta, tb].sort());
+
+      process.env.NANOCLAW_SHARED_NUMBER = 'true';
+      expect(await listIds(a)).toEqual([ta]);
+      expect(await listIds(b)).toEqual([tb]);
+
+      for (const command of ['tasks-get', 'tasks-update', 'tasks-pause', 'tasks-cancel', 'tasks-run', 'tasks-delete']) {
+        const r = await dispatch({ id: command, command, args: { id: tb, prompt: 'hijack' } }, a);
+        expect(r.ok, command).toBe(false);
+      }
+      const all = await dispatch({ id: 'all', command: 'tasks-cancel', args: { all: true } }, a);
+      expect(all.ok && (all.data as { cancelled: number }).cancelled).toBe(1);
+      expect(await listIds(a)).toEqual([]);
+      expect(await listIds(b)).toEqual([tb]);
+
+      const got = await dispatch({ id: 'g', command: 'tasks-get', args: { id: tb } }, b);
+      expect(got.ok && (got.data as { prompt: string }).prompt).toBe('court-watch');
+    });
+
+    it('a task run sees its own chat\'s tasks only', async () => {
+      const a = chat('mg-a', 'chat-a');
+      const b = chat('mg-b', 'chat-b');
+      const ta = await create(a, 'first');
+      const ta2 = await create(a, 'second');
+      const tb = await create(b, 'other');
+      process.env.NANOCLAW_SHARED_NUMBER = 'true';
+      const runSession = getSessionsByAgentGroup('ag-1').find((s) => s.thread_id === taskThreadId(ta))!;
+      const ids = await listIds({ caller: 'agent', agentGroupId: 'ag-1', sessionId: runSession.id, messagingGroupId: '' });
+      expect(ids.sort()).toEqual([ta, ta2].sort());
+      expect(ids).not.toContain(tb);
+    });
+  });
+
   it('task object exposes origin_session_id and created_at', async () => {
     const r = await dispatch(
       {
