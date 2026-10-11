@@ -1286,6 +1286,7 @@ registerChannelAdapter('whatsapp', {
         // Send file attachments (first file gets the caption, rest are captionless)
         if (hasFiles) {
           let captionUsed = false;
+          let captionMsgId: string | undefined;
           for (const file of message.files!) {
             try {
               const ext = path.extname(file.filename).toLowerCase();
@@ -1303,12 +1304,18 @@ registerChannelAdapter('whatsapp', {
                 cacheSentMessage(sent.key.id, sent.message);
               }
               await clearChatAfterReply(platformId, sent);
-              if (caption) captionUsed = true;
+              if (caption) {
+                captionUsed = true;
+                captionMsgId = sent?.key?.id ?? undefined;
+              }
             } catch (err) {
               log.error('Failed to send file', { platformId: idTag(platformId), err });
+              // Host notices (ncl notify send) must fail loudly rather than
+              // degrade to a text-only message without the attachment.
+              if (content.failOnFileError === true) throw err;
             }
           }
-          if (captionUsed) return; // Text was sent as caption
+          if (captionUsed) return captionMsgId; // Text was sent as caption
         }
 
         if (text) {
