@@ -165,7 +165,7 @@ describe('group notice', () => {
     expect(text).toContain('connected to **Miro**, an AI assistant by Miroflow');
     expect(text).toContain('For everyone in this group');
     expect(text).toContain('processed by Miroflow and its AI provider');
-    expect(text).toContain('12 months');
+    expect(text).toContain('account is active');
     expect(text).toContain('https://miroflow.in/privacy');
   });
 });

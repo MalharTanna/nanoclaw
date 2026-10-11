@@ -106,7 +106,7 @@ export function groupNotice(assistantName: string): string {
   return (
     `✅ This group is now connected to **${assistantName}**, an AI assistant by Miroflow. Mention me with @ to ask anything.\n\n` +
     `ℹ️ *For everyone in this group:* messages sent to ${assistantName}, and files shared with it, are processed by Miroflow and its AI provider to reply. ` +
-    `Replies and those messages are kept up to 12 months. Privacy: ${PRIVACY_URL}`
+    `Replies and those messages are kept while the business's Miroflow account is active, so the assistant can remember context. Privacy: ${PRIVACY_URL}`
   );
 }
 

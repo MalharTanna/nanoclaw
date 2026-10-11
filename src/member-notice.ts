@@ -47,7 +47,7 @@ export function answersEverything(agent: Pick<MessagingGroupAgent, 'engage_mode'
 export function answerAllNotice(assistantName: string): string {
   return (
     `ℹ️ *For everyone in this group:* ${assistantName} now reads every message here, not only the ones sent to it. ` +
-    `Messages and files shared in this group are processed by Miroflow and its AI provider to reply, and kept up to 12 months. ` +
+    `Messages and files shared in this group are processed by Miroflow and its AI provider to reply, and kept while the business's Miroflow account is active. ` +
     `Privacy: ${PRIVACY_URL}`
   );
 }
