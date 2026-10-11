@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractQuotedReply, hideChatListMatches } from './whatsapp.js';
+import { extractQuotedReply, hideChatListMatches, hideChatSetting } from './whatsapp.js';
 
 const reply = (quotedMessage: object, participant = '919900000001@s.whatsapp.net') => ({
   extendedTextMessage: {
@@ -58,6 +58,15 @@ describe('clearing the bot number\'s chats after each reply', () => {
     expect(hideChatListMatches(`${g}, 919800000000@s.whatsapp.net`, g)).toBe(true);
     expect(hideChatListMatches('919800000000@s.whatsapp.net', g)).toBe(false);
     expect(hideChatListMatches(' ALL ', g)).toBe(true);
+    expect(hideChatListMatches('none', g)).toBe(false);
+  });
+
+  it('is on by default for a shared bot number, and can be turned off with "none"', () => {
+    expect(hideChatSetting(undefined, 'true')).toBe('all');
+    expect(hideChatSetting('', 'true')).toBe('all');
+    expect(hideChatSetting('none', 'true')).toBe('none');
+    expect(hideChatSetting(undefined, undefined)).toBe('');
+    expect(hideChatSetting('120363000000000001@g.us', undefined)).toBe('120363000000000001@g.us');
   });
 
   it('quoted replies need nothing from the cleared chat: text, author and media come inside the reply itself', () => {

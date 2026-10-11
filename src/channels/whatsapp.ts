@@ -282,7 +282,18 @@ export function hideChatListMatches(list: string, jid: string): boolean {
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
+  if (entries.includes('none')) return false;
   return entries.includes('all') || entries.includes(jid.toLowerCase());
+}
+
+/**
+ * The effective WHATSAPP_HIDE_CHAT_JIDS: as set, else `all` on a shared bot
+ * number (Miroflow: the bot phone keeps no chat history by default), else
+ * nothing. Set `none` to turn it off on a shared number.
+ */
+export function hideChatSetting(configured: string | undefined, sharedNumber: string | undefined): string {
+  if (configured !== undefined && configured.trim() !== '') return configured;
+  return sharedNumber === 'true' ? 'all' : '';
 }
 
 export function extractQuotedReply(
@@ -716,7 +727,8 @@ registerChannelAdapter('whatsapp', {
     // because a group chat can't be deleted while still a member. Read per
     // call so .env edits apply without a restart.
     function hideChatEnabled(jid: string): boolean {
-      return hideChatListMatches(readEnvFile(['WHATSAPP_HIDE_CHAT_JIDS']).WHATSAPP_HIDE_CHAT_JIDS || '', jid);
+      const env = readEnvFile(['WHATSAPP_HIDE_CHAT_JIDS', 'NANOCLAW_SHARED_NUMBER']);
+      return hideChatListMatches(hideChatSetting(env.WHATSAPP_HIDE_CHAT_JIDS, env.NANOCLAW_SHARED_NUMBER), jid);
     }
 
     async function clearChatAfterReply(jid: string, sent: WAMessage | undefined): Promise<void> {
