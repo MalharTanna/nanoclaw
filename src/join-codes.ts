@@ -17,6 +17,7 @@
  * looked at; nothing else from unwired chats is read or recorded. Installs
  * without a join-codes file (e.g. a personal NanoClaw) never enter this path.
  */
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -176,6 +177,71 @@ export async function maybeHandleJoinCode(
 export function isSharedNumber(): boolean {
   const v = process.env.NANOCLAW_SHARED_NUMBER || readEnvFile(['NANOCLAW_SHARED_NUMBER']).NANOCLAW_SHARED_NUMBER;
   return v === 'true';
+}
+
+export const UNLINKED_DM_REPLY =
+  "Hi, I'm Miro, Miroflow's assistant. This number works for businesses with a Miroflow account. Ask the person who added me to your group, or visit miroflow.in.";
+export const UNLINKED_GROUP_REPLY = [
+  "👋 Hi, I'm Miro, Miroflow's assistant. This group isn't connected yet, so I can't help here. To connect it:",
+  '',
+  '1. Sign in at app.miroflow.in (new here? create an account at miroflow.in)',
+  '2. Open *Connect WhatsApp* - you will see a code like *join AB23CD*',
+  '3. Send that exact message in this group',
+  '',
+  'The code works once and expires in a few minutes, so send it right away. Only the business account owner or an admin can get it. After that, mention me with @ to ask anything.',
+].join('\n');
+const UNLINKED_REPLY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const PERSONAL_JID = /^[0-9]{5,20}@(s\.whatsapp\.net|lid)$/;
+const GROUP_JID = /^[0-9-]{5,40}@g\.us$/;
+
+export function unlinkedRepliesPath(dataDir = DATA_DIR): string {
+  return path.join(dataDir, 'unlinked-chat-replies.json');
+}
+
+/**
+ * Shared number, a chat no business has linked:
+ *   - personal chat: one short reply a day saying what this number is;
+ *   - group: when someone mentions the assistant (@ or by name), one reply a
+ *     day with the steps to get and send a join code.
+ * Anything else stays silent, as do messages typed on the bot phone itself.
+ * The cooldown file keeps only a hash of the chat id and the time, so no
+ * number is stored. Returns true if it replied.
+ */
+export async function maybeReplyToUnlinkedChat(
+  event: InboundEvent,
+  addressed: boolean,
+  dataDir = DATA_DIR,
+  now: number = Date.now(),
+): Promise<boolean> {
+  if (event.channelType !== 'whatsapp' || event.message.kind !== 'chat') return false;
+  const isGroup = event.message.isGroup === true;
+  if (isGroup ? !addressed || !GROUP_JID.test(event.platformId) : !PERSONAL_JID.test(event.platformId)) return false;
+  try {
+    const raw = event.message.content as unknown;
+    const content = (typeof raw === 'string' ? JSON.parse(raw) : raw) as { fromMe?: unknown } | null;
+    if (content?.fromMe === true) return false;
+  } catch {
+    /* unparsable content: treat as an ordinary incoming message */
+  }
+  const file = unlinkedRepliesPath(dataDir);
+  let seen: Record<string, number> = {};
+  try {
+    seen = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, number>;
+  } catch {
+    /* first reply, or unreadable - start fresh */
+  }
+  const key = crypto.createHash('sha256').update(event.platformId).digest('hex').slice(0, 32);
+  if (typeof seen[key] === 'number' && now - seen[key] < UNLINKED_REPLY_COOLDOWN_MS) return false;
+  for (const [k, t] of Object.entries(seen)) if (now - t >= UNLINKED_REPLY_COOLDOWN_MS) delete seen[k];
+  seen[key] = now;
+  try {
+    fs.writeFileSync(file, JSON.stringify(seen));
+  } catch (err) {
+    log.warn('Could not save unlinked-chat reply time', { err });
+  }
+  await reply(event, isGroup ? UNLINKED_GROUP_REPLY : UNLINKED_DM_REPLY);
+  log.info('Replied to unlinked chat', { chat: idTag(event.platformId), isGroup });
+  return true;
 }
 
 /** Test hook. */

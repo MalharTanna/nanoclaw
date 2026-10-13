@@ -33,7 +33,8 @@ import { log } from './log.js';
 import { idTag } from './log-redact.js';
 import { resolveSession, writeSessionMessage, writeOutboundDirect } from './session-manager.js';
 import { wakeContainer } from './container-runner.js';
-import { isSharedNumber, maybeHandleJoinCode } from './join-codes.js';
+import { ASSISTANT_NAME } from './config.js';
+import { isSharedNumber, maybeHandleJoinCode, maybeReplyToUnlinkedChat } from './join-codes.js';
 import { maybePostAnswerAllNotice } from './member-notice.js';
 import { isQuotaBlocked, notifyOwnerQuotaReached } from './quota-gate.js';
 import { tenantLocked } from './tenant-lock.js';
@@ -210,7 +211,15 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
     // Shared-number installs: "join <code>" in a group we sit in but aren't
     // wired to links it to a tenant (src/join-codes.ts). No-op elsewhere.
     if (await maybeHandleJoinCode(event, safeParseContent(event.message.content).text)) return;
-    if (isSharedNumber()) return; // shared number: unlinked chats are silently ignored
+    if (isSharedNumber()) {
+      // Shared number: unlinked chats are ignored, except a short reply a day
+      // (what this number is; in a group that asks for Miro, how to connect).
+      await maybeReplyToUnlinkedChat(
+        event,
+        isMention || addressesByName(safeParseContent(event.message.content).text ?? '', ASSISTANT_NAME),
+      );
+      return;
+    }
     // No messaging_groups row. Auto-create only when the message warrants
     // attention (the bot was addressed — @mention or DM). Plain chatter in
     // channels we merely sit in stays silent — no row, no DB writes.
@@ -253,7 +262,13 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
   //     escalate to owner for channel-registration approval.
   if (agentCount === 0) {
     if (await maybeHandleJoinCode(event, safeParseContent(event.message.content).text)) return;
-    if (isSharedNumber()) return;
+    if (isSharedNumber()) {
+      await maybeReplyToUnlinkedChat(
+        event,
+        isMention || addressesByName(safeParseContent(event.message.content).text ?? '', ASSISTANT_NAME),
+      );
+      return;
+    }
     if (!isMention) return;
     if (mg.denied_at) {
       log.debug('Message dropped — channel was denied by owner', {

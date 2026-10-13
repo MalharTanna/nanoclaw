@@ -15,6 +15,10 @@ import {
   linkRequestsPath,
   matchJoinCode,
   maybeHandleJoinCode,
+  maybeReplyToUnlinkedChat,
+  UNLINKED_DM_REPLY,
+  UNLINKED_GROUP_REPLY,
+  unlinkedRepliesPath,
 } from './join-codes.js';
 
 let dir: string;
@@ -167,5 +171,47 @@ describe('group notice', () => {
     expect(text).toContain('processed by Miroflow and its AI provider');
     expect(text).toContain('account is active');
     expect(text).toContain('https://miroflow.in/privacy');
+  });
+});
+
+describe('maybeReplyToUnlinkedChat', () => {
+  beforeEach(() => deliver.mockClear());
+  const sentText = (n: number) => JSON.parse(deliver.mock.calls[n][4]).text as string;
+
+  it('replies once a day to an unlinked personal chat, and stores no number', async () => {
+    const dm = event(false, '918287614988@s.whatsapp.net');
+    expect(await maybeReplyToUnlinkedChat(dm, false, dir, NOW)).toBe(true);
+    expect(sentText(0)).toBe(UNLINKED_DM_REPLY);
+    expect(fs.readFileSync(unlinkedRepliesPath(dir), 'utf8')).not.toContain('8287614988');
+
+    expect(await maybeReplyToUnlinkedChat(dm, false, dir, NOW + 60 * 60 * 1000)).toBe(false);
+    expect(await maybeReplyToUnlinkedChat(dm, false, dir, NOW + 25 * 60 * 60 * 1000)).toBe(true);
+    expect(deliver).toHaveBeenCalledTimes(2);
+  });
+
+  it('also covers a personal chat known only by its hidden id', async () => {
+    expect(await maybeReplyToUnlinkedChat(event(false, '14624464351359@lid'), false, dir, NOW)).toBe(true);
+  });
+
+  it('in an unlinked group, answers a mention with the join code steps, once a day', async () => {
+    const group = event(true);
+    expect(await maybeReplyToUnlinkedChat(group, false, dir, NOW)).toBe(false);
+    expect(await maybeReplyToUnlinkedChat(group, true, dir, NOW)).toBe(true);
+    expect(sentText(0)).toBe(UNLINKED_GROUP_REPLY);
+    expect(sentText(0)).toContain('Connect WhatsApp');
+    expect(sentText(0)).toContain('join AB23CD');
+    expect(await maybeReplyToUnlinkedChat(group, true, dir, NOW + 60 * 1000)).toBe(false);
+    expect(deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays silent for broadcasts, non-message events and messages typed on the bot phone', async () => {
+    expect(await maybeReplyToUnlinkedChat(event(false, 'status@broadcast'), true, dir, NOW)).toBe(false);
+    const reaction = event(false, '918287614988@s.whatsapp.net');
+    reaction.message.kind = 'reaction' as never;
+    expect(await maybeReplyToUnlinkedChat(reaction, true, dir, NOW)).toBe(false);
+    const typedOnBotPhone = event(false, '918287614988@s.whatsapp.net');
+    typedOnBotPhone.message.content = JSON.stringify({ text: 'hello', fromMe: true });
+    expect(await maybeReplyToUnlinkedChat(typedOnBotPhone, true, dir, NOW)).toBe(false);
+    expect(deliver).not.toHaveBeenCalled();
   });
 });
