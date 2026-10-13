@@ -606,12 +606,17 @@ registerChannelAdapter('whatsapp', {
           log.debug('Group members unavailable for tag lookup', { jid: idTag(chatJid), err });
           members = [];
         }
-        const member = members.find((p) => [p.id, p.lid].some((j) => j?.split('@')[0].split(':')[0] === digits));
-        const phone = member?.phoneNumber?.split('@')[0].split(':')[0];
+        // Only a hidden-ID (@lid) match counts: a tag that is already a
+        // member's phone number needs no change.
+        const userOf = (j?: string) => j?.split('@')[0].split(':')[0];
+        const member = members.find((p) => [p.id, p.lid].some((j) => j?.endsWith('@lid') && userOf(j) === digits));
+        if (!member) continue;
+        const phone =
+          userOf(member.phoneNumber) ?? (member.id.endsWith('@s.whatsapp.net') ? userOf(member.id) : undefined);
         if (phone) {
           setLidPhoneMapping(digits, `${phone}@s.whatsapp.net`);
           out[digits] = phone;
-        } else if (member) {
+        } else {
           unresolvedLids.add(digits);
         }
       }
@@ -1187,7 +1192,13 @@ registerChannelAdapter('whatsapp', {
                 const phoneJid = await translateJid(lidJid);
                 const lidUser = lidJid.split('@')[0].split(':')[0];
                 if (!phoneJid.endsWith('@lid')) map[lidUser] = phoneJid.split('@')[0];
-                else unresolvedLids.add(lidUser);
+              }
+              // Members WhatsApp won't map yet: look them up in the group's
+              // member list, so the agent sees (and tags) a phone number.
+              Object.assign(map, await lidPhoneDigits(content, chatJid), map);
+              for (const lidJid of lidMentions) {
+                const lidUser = lidJid.split('@')[0].split(':')[0];
+                if (!map[lidUser]) unresolvedLids.add(lidUser);
               }
               content = rewriteLidMentions(content, map);
             }

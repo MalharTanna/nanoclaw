@@ -169,6 +169,29 @@ describe('updateTask', () => {
     expect(parsed.extra).toBe('keep me');
   });
 
+  it("replaces a plain reminder's text and its prompt together", () => {
+    const db = freshDb();
+    insertTaskRow(db, {
+      id: 'task-1',
+      seriesId: 'task-1',
+      processAfter: new Date().toISOString(),
+      recurrence: null,
+      content: JSON.stringify({
+        prompt: 'Send this reminder exactly as written: Reminder: Parth, please drink water',
+        message: 'Reminder: Parth, please drink water',
+        originDestination: 'whatsapp-38472ca5',
+      }),
+    });
+
+    updateTask(db, 'task-1', { message: 'Reminder: @919876543210, please drink water' });
+
+    const row = db.prepare('SELECT content FROM messages_in WHERE id = ?').get('task-1') as { content: string };
+    const parsed = JSON.parse(row.content);
+    expect(parsed.message).toBe('Reminder: @919876543210, please drink water');
+    expect(parsed.prompt).toBe('Send this reminder exactly as written: Reminder: @919876543210, please drink water');
+    expect(parsed.originDestination).toBe('whatsapp-38472ca5');
+  });
+
   it('updates recurrence and process_after when supplied', () => {
     const db = freshDb();
     insertTaskRow(db, {

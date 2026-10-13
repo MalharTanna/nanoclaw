@@ -82,8 +82,15 @@ export function deleteTask(db: Database.Database, taskId: string): number {
     .changes;
 }
 
+/** The prompt a plain reminder carries, for the rare run that reaches the agent. */
+export function plainReminderPrompt(message: string): string {
+  return `Send this reminder exactly as written: ${message}`;
+}
+
 export interface TaskUpdate {
   prompt?: string;
+  /** New text for a plain reminder; its prompt follows unless one is given too. */
+  message?: string;
   script?: string | null;
   recurrence?: string | null;
   processAfter?: string;
@@ -104,14 +111,17 @@ export function updateTask(db: Database.Database, taskId: string, update: TaskUp
 
   const setProcessAfter = update.processAfter !== undefined;
   const setRecurrence = update.recurrence !== undefined;
-  const mergeContent = update.prompt !== undefined || update.script !== undefined;
+  const mergeContent = update.prompt !== undefined || update.script !== undefined || update.message !== undefined;
 
   const tx = db.transaction(() => {
     for (const row of rows) {
       let content = row.content;
       if (mergeContent) {
         const parsed = JSON.parse(row.content) as Record<string, unknown>;
-        if (update.prompt !== undefined) parsed.prompt = update.prompt;
+        if (update.message !== undefined) {
+          parsed.message = update.message;
+          parsed.prompt = update.prompt ?? plainReminderPrompt(update.message);
+        } else if (update.prompt !== undefined) parsed.prompt = update.prompt;
         if (update.script !== undefined) parsed.script = update.script;
         content = JSON.stringify(parsed);
       }

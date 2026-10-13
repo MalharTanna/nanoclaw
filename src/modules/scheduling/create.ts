@@ -6,7 +6,7 @@ import { CronExpressionParser } from 'cron-parser';
 import { TIMEZONE } from '../../config.js';
 import { inboundDbPath, resolveTaskSession, withInboundDb } from '../../session-manager.js';
 import { parseZonedToUtc } from '../../timezone.js';
-import { insertTaskRow } from './db.js';
+import { insertTaskRow, plainReminderPrompt } from './db.js';
 
 export const MAX_DAILY_FIRES = 4;
 
@@ -132,9 +132,10 @@ export function prepareScheduledTask(input: {
   dangerouslyOverrideRecurrenceLimit?: boolean;
 }): PreparedScheduledTask {
   const message = input.message?.trim() || plainReminderText(input.prompt ?? '', input.script) || null;
-  if (message && input.script) throw new Error('--message cannot be combined with --script (a plain reminder needs no gate)');
+  if (message && input.script)
+    throw new Error('--message cannot be combined with --script (a plain reminder needs no gate)');
   if (message && message.length > 4_000) throw new Error('--message is too long (max 4000 characters)');
-  const prompt = input.prompt || (message ? `Send this reminder exactly as written: ${message}` : '');
+  const prompt = input.prompt || (message ? plainReminderPrompt(message) : '');
   if (!prompt) throw new Error('--prompt or --message is required');
   const recurrence = input.recurrence ?? null;
   const script = input.script ?? null;

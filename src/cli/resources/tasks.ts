@@ -139,13 +139,22 @@ function chatScope(ctx: CallerContext): { chat: string | null } | undefined {
   return { chat: null }; // unattributable caller: sees nothing
 }
 
-function inScope(scope: { chat: string | null } | undefined, session: ScopedSession, row: { content: string }): boolean {
+function inScope(
+  scope: { chat: string | null } | undefined,
+  session: ScopedSession,
+  row: { content: string },
+): boolean {
   if (!scope) return true;
   return scope.chat !== null && taskChat(session.agent_group_id, row.content) === scope.chat;
 }
 
 /** Whether the live series `id` in this session belongs to the caller's chat. */
-function seriesInScope(db: Database.Database, session: ScopedSession, id: string, scope: { chat: string | null } | undefined): boolean {
+function seriesInScope(
+  db: Database.Database,
+  session: ScopedSession,
+  id: string,
+  scope: { chat: string | null } | undefined,
+): boolean {
   if (!scope) return true;
   const row = selectTask(db, id);
   return !!row && inScope(scope, session, row);
@@ -251,7 +260,12 @@ function createTask(args: Record<string, unknown>, ctx: CallerContext) {
   // The same reminder asked for twice (a repeated or quoted request) is not created twice.
   if (originDestination) {
     const dup = findDuplicateTask(group, originDestination, prepared);
-    if (dup) return { ...toOutput(dup.session, dup.row), duplicate: true, note: 'An identical reminder already exists in this chat; nothing new was created.' };
+    if (dup)
+      return {
+        ...toOutput(dup.session, dup.row),
+        duplicate: true,
+        note: 'An identical reminder already exists in this chat; nothing new was created.',
+      };
   }
   const { session, row } = createScheduledTask(group, prepared, { originSessionId, originDestination });
   return toOutput(session, row);
@@ -445,6 +459,12 @@ function updateTaskCommand(args: Record<string, unknown>, ctx: CallerContext) {
   const scope = chatScope(ctx);
   const update: TaskUpdate = {};
   if (typeof args.prompt === 'string') update.prompt = args.prompt;
+  if (typeof args.message === 'string') {
+    const message = args.message.trim();
+    if (!message) throw new Error('--message cannot be empty');
+    if (message.length > 4_000) throw new Error('--message is too long (max 4000 characters)');
+    update.message = message;
+  }
   if (args.process_after !== undefined) update.processAfter = parseProcessAfter(args.process_after);
   const recurrence = normalizeNullableString(args.recurrence);
   const script = normalizeNullableString(args.script);
@@ -471,7 +491,8 @@ function updateTaskCommand(args: Record<string, unknown>, ctx: CallerContext) {
 
   let touched = 0;
   for (const session of selectedSessions(args, ctx)) {
-    touched += withInbound(session, (db) => (seriesInScope(db, session, id, scope) ? updateTask(db, id, update) : 0)) ?? 0;
+    touched +=
+      withInbound(session, (db) => (seriesInScope(db, session, id, scope) ? updateTask(db, id, update) : 0)) ?? 0;
   }
   if (touched === 0) throw new Error(`no live task matched: ${id}`);
   return { series_id: id, touched, fields };
@@ -698,6 +719,11 @@ registerResource({
       args: [
         { name: 'id', type: 'string', description: 'Task series id.', required: true },
         { name: 'prompt', type: 'string', description: 'Replace the task prompt.' },
+        {
+          name: 'message',
+          type: 'string',
+          description: 'Replace the text of a plain reminder (one made with --message), e.g. to add a tag.',
+        },
         { name: 'process_after', type: 'string', description: 'New next-run time (ISO 8601 or naive local).' },
         { name: 'recurrence', type: 'string', description: 'New cron expression; "null"/"none" clears it (one-shot).' },
         {
