@@ -350,7 +350,10 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
     );
     const effectiveThreadId = threadsEnabled ? event.threadId : null;
 
-    const engages = evaluateEngage(agent, messageText, isMention, mg, effectiveThreadId);
+    // Shared (Miroflow) installs: a message that starts with the assistant's name ("Miro, ...")
+    // or has "@Miro" typed by hand addresses it too, not only a picked @-tag.
+    const named = tenantLocked() && mg.is_group === 1 && addressesByName(messageText, agentGroup.name);
+    const engages = evaluateEngage(agent, messageText, isMention || named, mg, effectiveThreadId);
 
     const accessOk = engages && (!accessGate || accessGate(event, userId, mg, agent.agent_group_id).allowed);
     const scopeOk = engages && (!senderScopeGate || senderScopeGate(event, userId, mg, agent).allowed);
@@ -446,6 +449,14 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
  *                      a thread has engaged us once, follow-ups arrive
  *                      with no mention and should still fire.
  */
+/** "Miro, ...", "miro: ...", "hey miro ..." at the start, or "@Miro" typed anywhere. */
+export function addressesByName(text: string, name: string | null | undefined): boolean {
+  const n = (name ?? '').trim();
+  if (!n || n.length < 2) return false;
+  const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^\\s*(hi|hey|hello|ok|dear)?\\s*@?${esc}\\b`, 'iu').test(text) || new RegExp(`@${esc}\\b`, 'iu').test(text);
+}
+
 function evaluateEngage(
   agent: MessagingGroupAgent,
   text: string,
