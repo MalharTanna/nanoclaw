@@ -97,6 +97,30 @@ export function enforceRecurrenceLimit(recurrence: string | null, override: bool
   if (fires > MAX_DAILY_FIRES) throw new Error(RECURRENCE_LIMIT_WARNING);
 }
 
+/**
+ * A prompt that is just the reminder text to post ("Reminder: Krina, take the
+ * i-cards") rather than an instruction that needs the agent. Such tasks are
+ * sent directly by the host (direct-reminders.ts) whatever flag created them.
+ */
+export function plainReminderText(prompt: string, script: string | null | undefined): string | null {
+  if (script) return null;
+  const p = prompt.trim();
+  if (p.length > 600 || !/^(\p{Extended_Pictographic}\s*)?reminder\s*[:\-]/iu.test(p)) return null;
+  if (/send (a |the )?(whatsapp )?message to|whatsapp-[0-9a-f]{6,}|\bncl\b|https?:\/\//i.test(p)) return null;
+  return p;
+}
+
+/** Comparable form of a reminder's text: lower case, punctuation and filler words dropped. */
+export function reminderKey(text: string): string {
+  const filler = new Set(['the', 'a', 'an', 'my', 'to', 'please', 'pls', 'reminder', 'remind']);
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter((w) => w && !filler.has(w))
+    .join(' ');
+}
+
 /** Validate task semantics and derive its first run without writing anything. */
 export function prepareScheduledTask(input: {
   name?: string;
@@ -107,7 +131,7 @@ export function prepareScheduledTask(input: {
   message?: string | null;
   dangerouslyOverrideRecurrenceLimit?: boolean;
 }): PreparedScheduledTask {
-  const message = input.message?.trim() || null;
+  const message = input.message?.trim() || plainReminderText(input.prompt ?? '', input.script) || null;
   if (message && input.script) throw new Error('--message cannot be combined with --script (a plain reminder needs no gate)');
   if (message && message.length > 4_000) throw new Error('--message is too long (max 4000 characters)');
   const prompt = input.prompt || (message ? `Send this reminder exactly as written: ${message}` : '');

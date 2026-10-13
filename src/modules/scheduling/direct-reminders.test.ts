@@ -63,6 +63,27 @@ async function create(args: Record<string, unknown>) {
 }
 
 describe('plain reminders (--message)', () => {
+  it('a prompt that is just "Reminder: ..." also goes direct, and an identical repeat is not created twice', async () => {
+    const first = await create({ name: 'llm-cert', prompt: 'Reminder: Krina, check the LLM certificate', process_after: '2020-01-01T00:00:00Z' });
+    const again = await dispatch({ id: 'c2', command: 'tasks-create', args: { name: 'check-cert', prompt: 'Reminder: Krina, check LLM certificate', process_after: '2020-01-01T00:00:00Z' } }, chat);
+    expect(again.ok && (again.data as { duplicate?: boolean; series_id: string })).toMatchObject({ duplicate: true, series_id: first.series_id });
+    const db = new Database(inboundDbPath('ag-1', first.session_id));
+    expect(await deliverDuePlainReminders(db, 'ag-1')).toBe(1);
+    expect(h.adapter.deliver).toHaveBeenCalledTimes(1);
+    expect(h.adapter.deliver).toHaveBeenCalledWith('120363000000000001@g.us', null, { kind: 'chat', content: { text: 'Reminder: Krina, check the LLM certificate' } });
+    db.close();
+  });
+
+  it('a different time is a different reminder; instructions still go to the agent', async () => {
+    await create({ name: 'a', message: 'Reminder: call Krina', process_after: '2999-01-01T10:00:00Z' });
+    const b = await dispatch({ id: 'b', command: 'tasks-create', args: { message: 'Reminder: call Krina', process_after: '2999-01-01T11:00:00Z' } }, chat);
+    expect(b.ok && (b.data as { duplicate?: boolean }).duplicate).toBeFalsy();
+    const t = await create({ name: 'watch', prompt: 'Reminder: check the court board and send a WhatsApp message to whatsapp-mg1 when Court 12 reaches 40', process_after: '2020-01-01T00:00:00Z' });
+    const db = new Database(inboundDbPath('ag-1', t.session_id));
+    expect(await deliverDuePlainReminders(db, 'ag-1')).toBe(0);
+    db.close();
+  });
+
   it('are posted to the chat they were set in without waking the agent', async () => {
     const t = await create({ name: 'icards', message: 'Reminder: Krina, take the i-cards', process_after: '2020-01-01T00:00:00Z' });
     const db = new Database(inboundDbPath('ag-1', t.session_id));

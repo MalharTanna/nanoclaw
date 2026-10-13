@@ -15,6 +15,7 @@ import { getChannelAdapterExact } from '../../channels/channel-registry.js';
 import { getMessagingGroup } from '../../db/messaging-groups.js';
 import { log } from '../../log.js';
 import { getDestinationByName } from '../agent-to-agent/db/agent-destinations.js';
+import { plainReminderText } from './create.js';
 import { appendRunLog } from './run-log.js';
 
 interface DueRow {
@@ -29,18 +30,25 @@ export async function deliverDuePlainReminders(inDb: Database.Database, agentGro
       `SELECT id, series_id, content FROM messages_in
         WHERE kind = 'task' AND status = 'pending'
           AND (process_after IS NULL OR datetime(process_after) <= datetime('now'))
-          AND content LIKE '%"message":%'`,
+          AND (content LIKE '%"message":%' OR content LIKE '%"prompt":"%eminder%')`,
     )
     .all() as DueRow[];
   let sent = 0;
   for (const row of rows) {
-    let content: { message?: unknown; originDestination?: unknown; script?: unknown };
+    let content: { message?: unknown; prompt?: unknown; originDestination?: unknown; script?: unknown };
     try {
       content = JSON.parse(row.content);
     } catch {
       continue;
     }
-    if (typeof content.message !== 'string' || !content.message || content.script) continue;
+    // Older rows (created before --message) still go direct when the prompt is just the reminder text.
+    if (typeof content.message !== 'string' || !content.message) {
+      const plain = typeof content.prompt === 'string' ? plainReminderText(content.prompt, content.script as string | null) : null;
+      if (!plain) continue;
+      content.message = plain;
+    }
+    if (content.script) continue;
+    const text = content.message as string;
     if (typeof content.originDestination !== 'string') continue;
     const dest = getDestinationByName(agentGroupId, content.originDestination);
     if (!dest || dest.target_type !== 'channel') continue;
@@ -53,10 +61,10 @@ export async function deliverDuePlainReminders(inDb: Database.Database, agentGro
     const claimed = inDb.prepare("UPDATE messages_in SET status = 'completed' WHERE id = ? AND status = 'pending'").run(row.id).changes;
     if (!claimed) continue;
     try {
-      await adapter.deliver(mg.platform_id, null, { kind: 'chat', content: { text: content.message } });
+      await adapter.deliver(mg.platform_id, null, { kind: 'chat', content: { text } });
       sent++;
       try {
-        appendRunLog(agentGroupId, row.series_id ?? row.id, `Posted the reminder directly (no agent run): ${content.message.slice(0, 120)}`);
+        appendRunLog(agentGroupId, row.series_id ?? row.id, `Posted the reminder directly (no agent run): ${text.slice(0, 120)}`);
       } catch {
         /* the log is best effort */
       }

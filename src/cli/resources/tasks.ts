@@ -28,6 +28,7 @@ import {
   MAX_DAILY_FIRES,
   parseProcessAfter,
   prepareScheduledTask,
+  reminderKey,
   type ScheduledTaskRow,
   validateRecurrence,
 } from '../../modules/scheduling/create.js';
@@ -246,11 +247,46 @@ function createTask(args: Record<string, unknown>, ctx: CallerContext) {
     dangerouslyOverrideRecurrenceLimit: bool(args.dangerously_override_recurrence_limit),
   });
   const originSessionId = ctx.caller === 'agent' ? ctx.sessionId : null;
-  const { session, row } = createScheduledTask(group, prepared, {
-    originSessionId,
-    originDestination: originDestinationOf(group, originSessionId),
-  });
+  const originDestination = originDestinationOf(group, originSessionId);
+  // The same reminder asked for twice (a repeated or quoted request) is not created twice.
+  if (originDestination) {
+    const dup = findDuplicateTask(group, originDestination, prepared);
+    if (dup) return { ...toOutput(dup.session, dup.row), duplicate: true, note: 'An identical reminder already exists in this chat; nothing new was created.' };
+  }
+  const { session, row } = createScheduledTask(group, prepared, { originSessionId, originDestination });
   return toOutput(session, row);
+}
+
+/** A live task in the same chat with the same time, schedule and (normalised) text. */
+function findDuplicateTask(
+  group: string,
+  destination: string,
+  task: { prompt: string; message?: string | null; recurrence: string | null; processAfter: string },
+): { session: ScopedSession; row: TaskRow } | null {
+  const key = reminderKey(task.message ?? task.prompt);
+  if (!key) return null;
+  const at = new Date(task.processAfter).getTime();
+  for (const s of findTaskSessions(group)) {
+    const session = { id: s.id, agent_group_id: s.agent_group_id };
+    const hit = withInbound(session, (db) =>
+      selectLiveTasks(db).find((row) => {
+        let c: { prompt?: string; message?: string; originDestination?: string };
+        try {
+          c = JSON.parse(row.content);
+        } catch {
+          return false;
+        }
+        return (
+          c.originDestination === destination &&
+          (row.recurrence ?? null) === (task.recurrence ?? null) &&
+          Math.abs(new Date(row.process_after ?? 0).getTime() - at) < 60_000 &&
+          reminderKey(c.message ?? c.prompt ?? '') === key
+        );
+      }),
+    );
+    if (hit) return { session, row: hit };
+  }
+  return null;
 }
 
 /**
