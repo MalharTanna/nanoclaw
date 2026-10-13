@@ -186,6 +186,19 @@ export function rewriteLidMentions(text: string, lidToPhone: Record<string, stri
 }
 
 /**
+ * Tag members whose LID could not be turned into a phone number by their LID
+ * JID. Tagging the bare digits as a phone JID renders as an unknown foreign
+ * number ("@+1 4624..."); the LID JID renders as the member's name.
+ * Exported for unit testing.
+ */
+export function lidMentionJids(mentions: string[], unresolvedLids: Set<string>): string[] {
+  return mentions.map((jid) => {
+    const user = jid.split('@')[0];
+    return unresolvedLids.has(user) ? `${user}@lid` : jid;
+  });
+}
+
+/**
  * Convert Claude's markdown to WhatsApp-native formatting and extract any
  * `@<phone>` mentions. Code-block regions are passed through untouched so
  * phone-like sequences inside code aren't tagged.
@@ -454,6 +467,8 @@ registerChannelAdapter('whatsapp', {
 
     // LID → phone JID mapping (WhatsApp's new ID system)
     const lidToPhoneMap: Record<string, string> = {};
+    // LIDs seen in incoming tags that WhatsApp would not map to a phone number.
+    const unresolvedLids = new Set<string>();
     let botLidUser: string | undefined;
     let botPhoneJid: string | undefined;
 
@@ -561,8 +576,9 @@ registerChannelAdapter('whatsapp', {
      * LID user part -> phone digits for every `@<digits>` tag in outgoing text,
      * from the in-memory map or WhatsApp's own LID store (survives restarts).
      */
-    async function lidPhoneDigits(text: string): Promise<Record<string, string>> {
+    async function lidPhoneDigits(text: string, chatJid?: string): Promise<Record<string, string>> {
       const out: Record<string, string> = {};
+      let members: GroupMetadata['participants'] | undefined;
       for (const m of text.matchAll(MENTION_RE)) {
         const digits = m[2];
         if (out[digits]) continue;
@@ -579,7 +595,24 @@ registerChannelAdapter('whatsapp', {
             out[digits] = phone;
           }
         } catch {
-          /* not a LID we know - leave the tag as written */
+          /* not in the signal store - try the group's member list below */
+        }
+        if (out[digits] || !chatJid?.endsWith('@g.us')) continue;
+        // The group's member list comes from WhatsApp itself, so this also
+        // works for members who never messaged and after a restart.
+        try {
+          members ??= (await getNormalizedGroupMetadata(chatJid))?.participants ?? [];
+        } catch (err) {
+          log.debug('Group members unavailable for tag lookup', { jid: idTag(chatJid), err });
+          members = [];
+        }
+        const member = members.find((p) => [p.id, p.lid].some((j) => j?.split('@')[0].split(':')[0] === digits));
+        const phone = member?.phoneNumber?.split('@')[0].split(':')[0];
+        if (phone) {
+          setLidPhoneMapping(digits, `${phone}@s.whatsapp.net`);
+          out[digits] = phone;
+        } else if (member) {
+          unresolvedLids.add(digits);
         }
       }
       return out;
@@ -736,7 +769,10 @@ registerChannelAdapter('whatsapp', {
     // chat has been quiet for IDLE_CLEAR_MS, so the bot phone keeps no history
     // there either. Keyed by the jid WhatsApp stores the chat under.
     const IDLE_CLEAR_MS = 5 * 60_000;
-    const unclearedChats = new Map<string, { matchJid: string; key: WAMessageKey; messageTimestamp: number | Long; at: number }>();
+    const unclearedChats = new Map<
+      string,
+      { matchJid: string; key: WAMessageKey; messageTimestamp: number | Long; at: number }
+    >();
     function noteIncomingForClear(storeJid: string, matchJid: string, msg: WAMessage): void {
       if (!msg.key?.id || !msg.messageTimestamp) return;
       unclearedChats.set(storeJid, { matchJid, key: msg.key, messageTimestamp: msg.messageTimestamp, at: Date.now() });
@@ -748,7 +784,10 @@ registerChannelAdapter('whatsapp', {
         unclearedChats.delete(jid);
         if (!hideChatEnabled(c.matchJid)) continue;
         try {
-          await sock.chatModify({ clear: true, lastMessages: [{ key: c.key, messageTimestamp: c.messageTimestamp }] }, jid);
+          await sock.chatModify(
+            { clear: true, lastMessages: [{ key: c.key, messageTimestamp: c.messageTimestamp }] },
+            jid,
+          );
           log.info('Cleared idle WhatsApp chat', { jid: idTag(c.matchJid) });
         } catch (err) {
           log.warn('Failed to clear idle WhatsApp chat', { jid: idTag(c.matchJid), err });
@@ -1146,7 +1185,9 @@ registerChannelAdapter('whatsapp', {
               const map: Record<string, string> = {};
               for (const lidJid of lidMentions) {
                 const phoneJid = await translateJid(lidJid);
-                if (!phoneJid.endsWith('@lid')) map[lidJid.split('@')[0].split(':')[0]] = phoneJid.split('@')[0];
+                const lidUser = lidJid.split('@')[0].split(':')[0];
+                if (!phoneJid.endsWith('@lid')) map[lidUser] = phoneJid.split('@')[0];
+                else unresolvedLids.add(lidUser);
               }
               content = rewriteLidMentions(content, map);
             }
@@ -1316,7 +1357,9 @@ registerChannelAdapter('whatsapp', {
                   id: content.messageId as string,
                   fromMe: false,
                   // In a group the reacted-to message is identified by its author too.
-                  ...(typeof content.participant === 'string' && platformId.endsWith('@g.us') ? { participant: content.participant } : {}),
+                  ...(typeof content.participant === 'string' && platformId.endsWith('@g.us')
+                    ? { participant: content.participant }
+                    : {}),
                 },
               },
             });
@@ -1342,9 +1385,10 @@ registerChannelAdapter('whatsapp', {
               let caption: string | undefined;
               let captionMentions: string[] | undefined;
               if (!captionUsed && text) {
-                const formatted = formatWhatsApp(rewriteLidMentions(text, await lidPhoneDigits(text)));
+                const formatted = formatWhatsApp(rewriteLidMentions(text, await lidPhoneDigits(text, platformId)));
                 caption = formatted.text;
-                captionMentions = formatted.mentions.length > 0 ? formatted.mentions : undefined;
+                captionMentions =
+                  formatted.mentions.length > 0 ? lidMentionJids(formatted.mentions, unresolvedLids) : undefined;
               }
               const mediaMsg = buildMediaMessage(file.data, file.filename, ext, caption);
               if (captionMentions) mediaMsg.mentions = captionMentions;
@@ -1368,9 +1412,11 @@ registerChannelAdapter('whatsapp', {
         }
 
         if (text) {
-          const { text: formatted, mentions } = formatWhatsApp(rewriteLidMentions(text, await lidPhoneDigits(text)));
+          const { text: formatted, mentions } = formatWhatsApp(
+            rewriteLidMentions(text, await lidPhoneDigits(text, platformId)),
+          );
           const prefixed = ASSISTANT_HAS_OWN_NUMBER ? formatted : `${ASSISTANT_NAME}: ${formatted}`;
-          return sendRawMessage(platformId, prefixed, mentions);
+          return sendRawMessage(platformId, prefixed, lidMentionJids(mentions, unresolvedLids));
         }
       },
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseWhatsAppMentions, rewriteLidMentions } from './whatsapp.js';
+import { lidMentionJids, parseWhatsAppMentions, rewriteLidMentions } from './whatsapp.js';
 
 describe('rewriteLidMentions', () => {
   const map = { '57900554821694': '917016211523' };
@@ -20,5 +20,17 @@ describe('rewriteLidMentions', () => {
   it('then tags the phone JID, which WhatsApp shows as the member name', () => {
     const { mentions } = parseWhatsAppMentions(rewriteLidMentions('@57900554821694 hello', map));
     expect(mentions).toEqual(['917016211523@s.whatsapp.net']);
+  });
+});
+
+describe('lidMentionJids', () => {
+  it('tags a member whose LID has no known phone by the LID JID, so WhatsApp shows the name', () => {
+    const { mentions } = parseWhatsAppMentions('Got it for Parth (@14624464351359)');
+    expect(lidMentionJids(mentions, new Set(['14624464351359']))).toEqual(['14624464351359@lid']);
+  });
+  it('leaves phone tags alone', () => {
+    expect(lidMentionJids(['917016211523@s.whatsapp.net'], new Set(['14624464351359']))).toEqual([
+      '917016211523@s.whatsapp.net',
+    ]);
   });
 });

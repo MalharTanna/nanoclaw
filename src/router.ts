@@ -449,12 +449,15 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
  *                      a thread has engaged us once, follow-ups arrive
  *                      with no mention and should still fire.
  */
-/** "Miro, ...", "miro: ...", "hey miro ..." at the start, or "@Miro" typed anywhere. */
+/**
+ * "Miro, ...", "miro: ...", "hey miro ...", "thanks miro", "goodbye miro" at
+ * the start, or "@Miro" typed anywhere.
+ */
 export function addressesByName(text: string, name: string | null | undefined): boolean {
   const n = (name ?? '').trim();
   if (!n || n.length < 2) return false;
   const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`^\\s*(hi|hey|hello|ok|dear)?\\s*@?${esc}\\b`, 'iu').test(text) || new RegExp(`@${esc}\\b`, 'iu').test(text);
+  return new RegExp(`^\\s*(hi|hey|hello|ok|okay|dear|thanks|thank you|thx|bye|goodbye|good\\s?bye|good\\s(?:morning|afternoon|evening|night))?[\\s,!.]*@?${esc}\\b`, 'iu').test(text) || new RegExp(`@${esc}\\b`, 'iu').test(text);
 }
 
 function evaluateEngage(

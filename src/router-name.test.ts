@@ -6,7 +6,7 @@ import { addressesByName } from './router.js';
 
 describe('addressesByName', () => {
   it('a message that starts with the name or types @Name addresses the assistant', () => {
-    for (const t of ['Miro, what is the GST on this?', 'miro summarise this', 'Hey Miro remind me at 5', '@Miro hi', 'please check this @miro', '  MIRO: status?'])
+    for (const t of ['Miro, what is the GST on this?', 'miro summarise this', 'Hey Miro remind me at 5', '@Miro hi', 'please check this @miro', '  MIRO: status?', 'goodbye miro. removing you from group.', 'Thanks Miro!', 'good morning, Miro', 'bye miro'])
       expect(addressesByName(t, 'Miro'), t).toBe(true);
   });
   it('mentioning the name in passing does not', () => {
