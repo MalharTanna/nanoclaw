@@ -15,7 +15,7 @@
 import { readEnvFile } from './env.js';
 
 /** ncl resources a tenant's agent may use from chat. */
-export const TENANT_CHAT_RESOURCES: ReadonlySet<string> = new Set(['tasks']);
+export const TENANT_CHAT_RESOURCES: ReadonlySet<string> = new Set(['tasks', 'court', 'matters']);
 
 /** Admin chat commands customers never get on a shared install. */
 export const TENANT_BLOCKED_COMMANDS: ReadonlySet<string> = new Set(['/cost', '/upload-trace']);
