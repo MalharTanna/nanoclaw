@@ -154,7 +154,13 @@ export function setChannelRequestGate(fn: ChannelRequestGateFn): void {
   channelRequestGate = fn;
 }
 
-function safeParseContent(raw: string): { text?: string; sender?: string; senderId?: string; participant?: string; attachments?: unknown[] } {
+function safeParseContent(raw: string): {
+  text?: string;
+  sender?: string;
+  senderId?: string;
+  participant?: string;
+  attachments?: unknown[];
+} {
   try {
     return JSON.parse(raw);
   } catch {
@@ -364,7 +370,12 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
         await adapter
           ?.deliver(event.platformId, null, {
             kind: 'chat',
-            content: { operation: 'reaction', messageId: event.message.id, emoji: '🙏', participant: parsed.participant },
+            content: {
+              operation: 'reaction',
+              messageId: event.message.id,
+              emoji: '🙏',
+              participant: parsed.participant,
+            },
           })
           .catch(() => undefined);
         log.info('Thanks acknowledged with a reaction (no agent run)', { agentGroupId: agent.agent_group_id });
@@ -450,14 +461,15 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
  *                      with no mention and should still fire.
  */
 /**
- * "Miro, ...", "miro: ...", "hey miro ...", "thanks miro", "goodbye miro" at
- * the start, or "@Miro" typed anywhere.
+ * The assistant's name as a whole word anywhere in the message, in any case:
+ * "Miro, hi", "goodbye miro", "ask MIRO?", "@Miro". Part of a longer word
+ * ("MiroFlow", "miroflow.in", "Mirov") does not count.
  */
 export function addressesByName(text: string, name: string | null | undefined): boolean {
   const n = (name ?? '').trim();
   if (!n || n.length < 2) return false;
   const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`^\\s*(hi|hey|hello|ok|okay|dear|thanks|thank you|thx|bye|goodbye|good\\s?bye|good\\s(?:morning|afternoon|evening|night))?[\\s,!.]*@?${esc}\\b`, 'iu').test(text) || new RegExp(`@${esc}\\b`, 'iu').test(text);
+  return new RegExp(`(^|[^\\p{L}\\p{N}_])${esc}(?![\\p{L}\\p{N}_])`, 'iu').test(text);
 }
 
 function evaluateEngage(
