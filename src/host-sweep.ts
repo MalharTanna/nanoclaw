@@ -210,6 +210,12 @@ async function sweepSession(session: Session): Promise<void> {
     // container/agent-runner/src/db/connection.ts). Otherwise the reset path
     // would keep bumping process_after into the future, dueCount would stay 0,
     // and the wake would never fire.
+    // 1b. Plain reminders go out directly, so they never wake the agent.
+    if (!isQuotaBlocked(session.agent_group_id)) {
+      const { deliverDuePlainReminders } = await import('./modules/scheduling/direct-reminders.js');
+      await deliverDuePlainReminders(inDb, session.agent_group_id);
+    }
+
     const dueCount = countDueMessages(inDb);
     let justWoke = false;
     if (dueCount > 0 && !isContainerRunning(session.id) && isQuotaBlocked(session.agent_group_id)) {

@@ -30,6 +30,8 @@ export interface PreparedScheduledTask {
   recurrence: string | null;
   script: string | null;
   processAfter: string;
+  /** Plain reminder: this exact text is posted to the origin chat by the host, without waking the agent. */
+  message?: string | null;
 }
 
 export interface ScheduledTaskRow {
@@ -102,9 +104,14 @@ export function prepareScheduledTask(input: {
   recurrence?: string | null;
   processAfter?: string;
   script?: string | null;
+  message?: string | null;
   dangerouslyOverrideRecurrenceLimit?: boolean;
 }): PreparedScheduledTask {
-  if (!input.prompt) throw new Error('--prompt is required');
+  const message = input.message?.trim() || null;
+  if (message && input.script) throw new Error('--message cannot be combined with --script (a plain reminder needs no gate)');
+  if (message && message.length > 4_000) throw new Error('--message is too long (max 4000 characters)');
+  const prompt = input.prompt || (message ? `Send this reminder exactly as written: ${message}` : '');
+  if (!prompt) throw new Error('--prompt or --message is required');
   const recurrence = input.recurrence ?? null;
   const script = input.script ?? null;
   validateRecurrence(recurrence);
@@ -119,7 +126,7 @@ export function prepareScheduledTask(input: {
     processAfter = parseProcessAfter(input.processAfter);
   }
 
-  return { name: input.name, prompt: input.prompt, recurrence, script, processAfter };
+  return { name: input.name, prompt, recurrence, script, processAfter, message };
 }
 
 /** Persist a prepared task through NanoClaw's single task/session representation. */
@@ -143,6 +150,7 @@ export function createScheduledTask(
       content: JSON.stringify({
         prompt: task.prompt,
         script: task.script,
+        ...(task.message ? { message: task.message } : {}),
         originSessionId: options?.originSessionId ?? null,
         // The chat the task was created in (its destination name): the default
         // place to deliver when the task fires.

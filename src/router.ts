@@ -36,6 +36,8 @@ import { wakeContainer } from './container-runner.js';
 import { isSharedNumber, maybeHandleJoinCode } from './join-codes.js';
 import { maybePostAnswerAllNotice } from './member-notice.js';
 import { isQuotaBlocked, notifyOwnerQuotaReached } from './quota-gate.js';
+import { tenantLocked } from './tenant-lock.js';
+import { isPureThanks } from './thanks.js';
 import { getSession } from './db/sessions.js';
 import type { AgentGroup, MessagingGroup, MessagingGroupAgent } from './types.js';
 import type { InboundEvent } from './channels/adapter.js';
@@ -152,7 +154,7 @@ export function setChannelRequestGate(fn: ChannelRequestGateFn): void {
   channelRequestGate = fn;
 }
 
-function safeParseContent(raw: string): { text?: string; sender?: string; senderId?: string } {
+function safeParseContent(raw: string): { text?: string; sender?: string; senderId?: string; participant?: string; attachments?: unknown[] } {
   try {
     return JSON.parse(raw);
   } catch {
@@ -354,6 +356,18 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
     const scopeOk = engages && (!senderScopeGate || senderScopeGate(event, userId, mg, agent).allowed);
 
     if (engages && accessOk && scopeOk) {
+      // A message that only says thanks gets a 🙏 reaction, not an AI run (shared installs).
+      if (tenantLocked() && mg.channel_type === 'whatsapp' && !parsed.attachments && isPureThanks(messageText)) {
+        await adapter
+          ?.deliver(event.platformId, null, {
+            kind: 'chat',
+            content: { operation: 'reaction', messageId: event.message.id, emoji: '🙏', participant: parsed.participant },
+          })
+          .catch(() => undefined);
+        log.info('Thanks acknowledged with a reaction (no agent run)', { agentGroupId: agent.agent_group_id });
+        engagedCount++;
+        continue;
+      }
       await deliverToAgent(agent, agentGroup, mg, event, userId, threadsEnabled, effectiveThreadId, true);
       engagedCount++;
 

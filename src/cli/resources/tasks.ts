@@ -231,13 +231,15 @@ function taskId(args: Record<string, unknown>): string {
 function createTask(args: Record<string, unknown>, ctx: CallerContext) {
   const group = groupArg(args, ctx);
   if (!group) throw new Error('--group is required');
-  const prompt = str(args.prompt);
-  if (!prompt) throw new Error('--prompt is required');
+  const prompt = str(args.prompt) ?? '';
+  const message = str(args.message);
+  if (!prompt && !message) throw new Error('--prompt or --message is required');
   const recurrence = normalizeNullableString(args.recurrence) ?? null;
   const script = normalizeNullableString(args.script) ?? null;
   const prepared = prepareScheduledTask({
     name: str(args.name),
     prompt,
+    message,
     recurrence,
     processAfter: str(args.process_after),
     script,
@@ -561,7 +563,8 @@ registerResource({
       access: 'open',
       description:
         `Create a scheduled task (recurring or one-shot) in the agent group system session.\n\n` +
-        `Requires --prompt plus EITHER --recurrence (recurring; first run derived from the cron grid) OR --process-after (one-shot, ISO 8601 or naive local). Always pass --name for a readable id.\n\n` +
+        `Requires --prompt (or --message) plus EITHER --recurrence (recurring; first run derived from the cron grid) OR --process-after (one-shot, ISO 8601 or naive local). Always pass --name for a readable id.\n\n` +
+        `PLAIN REMINDERS: use --message "<exact text>" instead of --prompt. The host posts it to this chat at the time without waking you (no tokens, much cheaper). Use --prompt only when the run needs thinking (checking a website, summarising, deciding).\n\n` +
         `--script contract (pre-task gate, runs BEFORE the agent wakes):\n` +
         `  bash, 30s timeout, 1MB output cap. Its LAST stdout line must be JSON:\n` +
         `    {"wakeAgent": <bool>, "data": {...}}\n` +
@@ -583,7 +586,13 @@ registerResource({
           type: 'string',
           description: 'Short descriptive name → readable task id (<slug>-<hex>). Without it, ids are t-<hex>.',
         },
-        { name: 'prompt', type: 'string', description: 'Task prompt the agent wakes to.', required: true },
+        { name: 'prompt', type: 'string', description: 'Task prompt the agent wakes to (omit when using --message).' },
+        {
+          name: 'message',
+          type: 'string',
+          description:
+            'Plain reminder: the exact text to post in this chat at the time, sent by the host WITHOUT waking you (no tokens). Use this for any reminder that is just a message; use --prompt only when the run needs thinking (checking a website, summarising, deciding).',
+        },
         {
           name: 'recurrence',
           type: 'string',

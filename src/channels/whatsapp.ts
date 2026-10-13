@@ -731,8 +731,37 @@ registerChannelAdapter('whatsapp', {
       return hideChatListMatches(hideChatSetting(env.WHATSAPP_HIDE_CHAT_JIDS, env.NANOCLAW_SHARED_NUMBER), jid);
     }
 
+    // Chats with incoming messages not yet cleared (no reply since): a group
+    // where nobody tags the bot, or a number it never answers. Swept once the
+    // chat has been quiet for IDLE_CLEAR_MS, so the bot phone keeps no history
+    // there either. Keyed by the jid WhatsApp stores the chat under.
+    const IDLE_CLEAR_MS = 5 * 60_000;
+    const unclearedChats = new Map<string, { matchJid: string; key: WAMessageKey; messageTimestamp: number | Long; at: number }>();
+    function noteIncomingForClear(storeJid: string, matchJid: string, msg: WAMessage): void {
+      if (!msg.key?.id || !msg.messageTimestamp) return;
+      unclearedChats.set(storeJid, { matchJid, key: msg.key, messageTimestamp: msg.messageTimestamp, at: Date.now() });
+    }
+    async function sweepIdleChats(): Promise<void> {
+      const now = Date.now();
+      for (const [jid, c] of unclearedChats) {
+        if (now - c.at < IDLE_CLEAR_MS) continue;
+        unclearedChats.delete(jid);
+        if (!hideChatEnabled(c.matchJid)) continue;
+        try {
+          await sock.chatModify({ clear: true, lastMessages: [{ key: c.key, messageTimestamp: c.messageTimestamp }] }, jid);
+          log.info('Cleared idle WhatsApp chat', { jid: idTag(c.matchJid) });
+        } catch (err) {
+          log.warn('Failed to clear idle WhatsApp chat', { jid: idTag(c.matchJid), err });
+        }
+      }
+    }
+    const idleClearTimer = setInterval(() => void sweepIdleChats(), 60_000);
+    idleClearTimer.unref?.();
+
     async function clearChatAfterReply(jid: string, sent: WAMessage | undefined): Promise<void> {
       if (!sent?.key?.id || !sent.messageTimestamp || !hideChatEnabled(jid)) return;
+      // The reply clears everything up to it, including earlier incoming messages.
+      for (const [k, c] of unclearedChats) if (c.matchJid === jid || k === jid) unclearedChats.delete(k);
       try {
         await sock.chatModify(
           { clear: true, lastMessages: [{ key: sent.key, messageTimestamp: sent.messageTimestamp }] },
@@ -1085,6 +1114,7 @@ registerChannelAdapter('whatsapp', {
 
             // Translate LID → phone JID using v7's alt JID from extractAddressingContext
             const chatJid = await translateJid(rawJid, msg.key.remoteJidAlt);
+            if (!msg.key.fromMe) noteIncomingForClear(rawJid, chatJid, msg);
 
             const timestamp = new Date(Number(msg.messageTimestamp) * 1000).toISOString();
             const isGroup = chatJid.endsWith('@g.us');
@@ -1201,6 +1231,7 @@ registerChannelAdapter('whatsapp', {
                 text: content,
                 sender,
                 senderName,
+                ...(msg.key.participant && { participant: msg.key.participant }),
                 ...(attachments.length > 0 && { attachments }),
                 ...(quoted && { replyTo: { id: quoted.id, sender: quoted.sender, text: quoted.text } }),
                 fromMe,
@@ -1280,7 +1311,13 @@ registerChannelAdapter('whatsapp', {
             await sock.sendMessage(platformId, {
               react: {
                 text: content.emoji as string,
-                key: { remoteJid: platformId, id: content.messageId as string, fromMe: false },
+                key: {
+                  remoteJid: platformId,
+                  id: content.messageId as string,
+                  fromMe: false,
+                  // In a group the reacted-to message is identified by its author too.
+                  ...(typeof content.participant === 'string' && platformId.endsWith('@g.us') ? { participant: content.participant } : {}),
+                },
               },
             });
           } catch (err) {
