@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { lidMentionJids, parseWhatsAppMentions, rewriteLidMentions } from './whatsapp.js';
+import {
+  lidMentionJids,
+  missedPrefix,
+  parseWhatsAppMentions,
+  pickMissedMessages,
+  rewriteLidMentions,
+} from './whatsapp.js';
 
 describe('rewriteLidMentions', () => {
   const map = { '57900554821694': '917016211523' };
@@ -32,5 +38,45 @@ describe('lidMentionJids', () => {
     expect(lidMentionJids(['917016211523@s.whatsapp.net'], new Set(['14624464351359']))).toEqual([
       '917016211523@s.whatsapp.net',
     ]);
+  });
+});
+
+describe('pickMissedMessages', () => {
+  const msg = (id: string, jid: string, tsSec: number, fromMe = false) =>
+    ({ key: { id, remoteJid: jid, fromMe }, message: { conversation: 'hi' }, messageTimestamp: tsSec }) as never;
+  const since = 1_000_000_000;
+  const until = since + 36_000;
+
+  it('keeps messages from others sent while offline, oldest first, once', () => {
+    const seen = new Set<string>();
+    const got = pickMissedMessages(
+      [
+        msg('late', 'g1@g.us', since + 500),
+        msg('early', 'g1@g.us', since + 100),
+        msg('before', 'g1@g.us', since - 10),
+        msg('after', 'g1@g.us', until + 10),
+        msg('mine', 'g1@g.us', since + 200, true),
+        msg('status', 'status@broadcast', since + 300),
+        msg('dm', '919000000000@s.whatsapp.net', since + 50),
+      ],
+      since * 1000,
+      until * 1000,
+      seen,
+    );
+    expect(got.map((m) => m.key.id)).toEqual(['dm', 'early', 'late']);
+    expect(pickMissedMessages([msg('early', 'g1@g.us', since + 100)], since * 1000, until * 1000, seen)).toEqual([]);
+  });
+
+  it('keeps only the latest 20 per chat', () => {
+    const many = Array.from({ length: 25 }, (_, i) => msg(`m${i}`, 'g1@g.us', since + i + 1));
+    const got = pickMissedMessages(many, since * 1000, until * 1000, new Set());
+    expect(got).toHaveLength(20);
+    expect(got[0]?.key.id).toBe('m5');
+  });
+
+  it('notes when it was sent', () => {
+    expect(missedPrefix(Date.parse('2026-10-13T19:45:00Z') / 1000, 'Asia/Kolkata')).toBe(
+      '(sent at 1:15 AM while I was offline) ',
+    );
   });
 });

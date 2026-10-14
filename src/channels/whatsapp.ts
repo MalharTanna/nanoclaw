@@ -39,7 +39,7 @@ import {
 import type { GroupMetadata, WAMessageKey, WAMessage, WASocket } from '@whiskeysockets/baileys';
 
 import { isSafeAttachmentName } from '../attachment-safety.js';
-import { ASSISTANT_HAS_OWN_NUMBER, ASSISTANT_NAME } from '../config.js';
+import { ASSISTANT_HAS_OWN_NUMBER, ASSISTANT_NAME, TIMEZONE } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
 import { idTag } from '../log-redact.js';
@@ -196,6 +196,54 @@ export function lidMentionJids(mentions: string[], unresolvedLids: Set<string>):
     const user = jid.split('@')[0];
     return unresolvedLids.has(user) ? `${user}@lid` : jid;
   });
+}
+
+/** Offline gaps shorter than this are normal reconnects; longer than the max are too stale to answer. */
+export const MISSED_MIN_GAP_MS = 2 * 60_000;
+export const MISSED_MAX_GAP_MS = 48 * 60 * 60_000;
+const MISSED_PER_CHAT = 20;
+
+/**
+ * Messages from a history sync that arrived while this install was offline:
+ * from other people, sent after `sinceMs` and up to `untilMs` (when we came
+ * back), not already handled. Oldest first, at most 20 per chat (the latest).
+ * Exported for unit testing.
+ */
+export function pickMissedMessages(
+  messages: WAMessage[],
+  sinceMs: number,
+  untilMs: number,
+  seen: Set<string>,
+): WAMessage[] {
+  const byChat = new Map<string, WAMessage[]>();
+  for (const m of messages) {
+    const jid = m.key?.remoteJid;
+    const id = m.key?.id;
+    if (!m.message || !jid || !id || m.key.fromMe || jid === 'status@broadcast' || seen.has(id)) continue;
+    const ts = Number(m.messageTimestamp) * 1000;
+    if (!(ts > sinceMs && ts <= untilMs)) continue;
+    const list = byChat.get(jid) ?? [];
+    list.push(m);
+    byChat.set(jid, list);
+  }
+  const out: WAMessage[] = [];
+  for (const list of byChat.values()) {
+    list.sort((a, b) => Number(a.messageTimestamp) - Number(b.messageTimestamp));
+    out.push(...list.slice(-MISSED_PER_CHAT));
+  }
+  for (const m of out) seen.add(m.key.id!);
+  return out.sort((a, b) => Number(a.messageTimestamp) - Number(b.messageTimestamp));
+}
+
+/** "(sent at 1:15 AM while I was offline) " in the install's time zone. */
+export function missedPrefix(tsSeconds: number, timeZone: string): string {
+  const t = new Date(tsSeconds * 1000).toLocaleTimeString('en-IN', {
+    timeZone,
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+  return `(sent at ${t.toUpperCase()} while I was offline) `;
 }
 
 /**
@@ -478,6 +526,39 @@ registerChannelAdapter('whatsapp', {
 
     // Sent message cache for retry/re-encrypt requests
     const sentMessageCache = new Map<string, any>();
+
+    // Missed-message catch-up. The last time we were online is kept on disk
+    // (outside store/auth, which a logout wipes). When a fresh link comes up
+    // after a real gap, WhatsApp's history sync carries the messages sent in
+    // between; those are handled like new ones, noted as sent while offline.
+    const lastOnlineFile = path.join(process.cwd(), 'store', 'wa-last-online.json');
+    let lastOnlineWrite = 0;
+    const noteOnline = (force = false) => {
+      const now = Date.now();
+      if (!force && now - lastOnlineWrite < 30_000) return;
+      lastOnlineWrite = now;
+      try {
+        fs.writeFileSync(lastOnlineFile, JSON.stringify({ at: now }));
+      } catch {
+        /* best effort */
+      }
+    };
+    const readLastOnline = (): number | null => {
+      try {
+        const at = (JSON.parse(fs.readFileSync(lastOnlineFile, 'utf8')) as { at?: unknown }).at;
+        return typeof at === 'number' ? at : null;
+      } catch {
+        return null;
+      }
+    };
+    let catchup: { since: number; until: number; openUntil: number } | null = null;
+    // Only a fresh link (no account on disk, e.g. after a logout) gets a
+    // history sync of the gap; an ordinary reconnect gets missed messages live.
+    let freshLink = false;
+    const seenMissed = new Set<string>();
+    setInterval(() => {
+      if (connected) noteOnline();
+    }, 60_000).unref();
 
     // Disk-backed copy of sent messages. An in-memory-only cache means any
     // message sent before a restart can't be re-encrypted when a recipient
@@ -1003,6 +1084,7 @@ registerChannelAdapter('whatsapp', {
       //
       // `state.creds.me` is set as part of the QR / pairing-code handshake
       // and is the authoritative "this socket has an account" signal.
+      if (!state.creds.me) freshLink = true;
       if (phoneNumber && !state.creds.me) {
         setTimeout(async () => {
           try {
@@ -1085,6 +1167,19 @@ registerChannelAdapter('whatsapp', {
           reconnectAttempt = 0;
           log.info('Connected to WhatsApp');
 
+          // Back after a real gap: accept the history sync's messages from it
+          // for the next 15 minutes. A second open (e.g. the restart right
+          // after pairing) keeps the window already set.
+          const lastOnline = readLastOnline();
+          const gap = lastOnline ? Date.now() - lastOnline : 0;
+          if (freshLink && !catchup && lastOnline && gap > MISSED_MIN_GAP_MS && gap < MISSED_MAX_GAP_MS) {
+            catchup = { since: lastOnline, until: Date.now(), openUntil: Date.now() + 15 * 60_000 };
+            log.info('Back online after a gap - will answer messages missed meanwhile', {
+              offlineMinutes: Math.round(gap / 60_000),
+            });
+          }
+          noteOnline(true);
+
           // Clean up pairing code file after successful connection
           try {
             if (fs.existsSync(pairingCodeFile)) fs.unlinkSync(pairingCodeFile);
@@ -1146,9 +1241,11 @@ registerChannelAdapter('whatsapp', {
         }
       });
 
-      // Inbound messages
-      sock.ev.on('messages.upsert', async ({ messages }) => {
+      // Inbound messages (live, or missed while offline - see catch-up above)
+      const processIncoming = async (messages: WAMessage[], missedWhileOffline = false): Promise<void> => {
+        if (!missedWhileOffline) noteOnline();
         for (const msg of messages) {
+          if (!missedWhileOffline && catchup && msg.key?.id) seenMissed.add(msg.key.id);
           try {
             if (!msg.message) continue;
             const normalized = normalizeMessageContent(msg.message);
@@ -1269,6 +1366,8 @@ registerChannelAdapter('whatsapp', {
             const botMentionedInGroup =
               isGroup && (isBotMentionedInGroup(normalized, botPhoneJid, botLidUser) || quoted?.fromBot === true);
 
+            if (missedWhileOffline) content = missedPrefix(Number(msg.messageTimestamp), TIMEZONE) + content;
+
             const inbound: InboundMessage = {
               id: msg.key.id || `wa-${Date.now()}`,
               kind: 'chat',
@@ -1303,6 +1402,16 @@ registerChannelAdapter('whatsapp', {
             });
           }
         }
+      };
+      sock.ev.on('messages.upsert', async ({ messages }) => processIncoming(messages));
+
+      // History sync after a fresh link: answer what was missed while offline.
+      sock.ev.on('messaging-history.set', async ({ messages }) => {
+        if (!catchup || Date.now() > catchup.openUntil) return;
+        const missed = pickMissedMessages(messages, catchup.since, catchup.until, seenMissed);
+        if (missed.length === 0) return;
+        log.info('Handling messages missed while offline', { count: missed.length });
+        await processIncoming(missed, true);
       });
     }
 
