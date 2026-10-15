@@ -127,16 +127,17 @@ export async function maybeHandleJoinCode(
   const codes = readArmedCodes(dataDir);
   if (codes === null) return false;
 
+  // Personal chats get no reply at all on the shared number (a reply in a
+  // brand-new chat preceded both of its logouts); the dashboard shows the result.
   if (!isGroup && !PHONE_DM_JID.test(event.platformId)) {
     log.info('Join code in a DM from an unresolved sender', { channelType: event.channelType });
-    await reply(event, "⚠️ I couldn't confirm your number. Please send the code again in a minute.");
     return true;
   }
 
   const armed = codes[code];
   if (!armed || Date.parse(armed.expiresAt) <= now) {
     const last = invalidRepliedAt.get(event.platformId) ?? 0;
-    if (now - last >= INVALID_REPLY_COOLDOWN_MS) {
+    if (isGroup && now - last >= INVALID_REPLY_COOLDOWN_MS) {
       invalidRepliedAt.set(event.platformId, now);
       await reply(
         event,
@@ -158,13 +159,7 @@ export async function maybeHandleJoinCode(
   };
   fs.appendFileSync(linkRequestsPath(dataDir), JSON.stringify(request) + '\n', { mode: 0o600 });
   log.info('Join code accepted', { chat: idTag(event.platformId), tenantId: armed.tenantId });
-  await reply(
-    event,
-    isGroup
-      ? groupNotice(armed.assistantName)
-      : `✅ Your number is now connected to **${armed.assistantName}**, an AI assistant by Miroflow. Message me here any time.\n\n` +
-          `ℹ️ What you send here is processed by Miroflow and its AI provider to reply. Privacy: ${PRIVACY_URL}`,
-  );
+  if (isGroup) await reply(event, groupNotice(armed.assistantName));
   return true;
 }
 
@@ -179,8 +174,6 @@ export function isSharedNumber(): boolean {
   return v === 'true';
 }
 
-export const UNLINKED_DM_REPLY =
-  "Hi, I'm Miro, Miroflow's assistant. This number works for businesses with a Miroflow account. Ask the person who added me to your group, or visit miroflow.in.";
 export const UNLINKED_GROUP_REPLY = [
   "👋 Hi, I'm Miro, Miroflow's assistant. This group isn't connected yet, so I can't help here. To connect it:",
   '',
@@ -191,7 +184,6 @@ export const UNLINKED_GROUP_REPLY = [
   'The code works once and expires in a few minutes, so send it right away. Only the business account owner or an admin can get it. After that, mention me with @ to ask anything.',
 ].join('\n');
 const UNLINKED_REPLY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-const PERSONAL_JID = /^[0-9]{5,20}@(s\.whatsapp\.net|lid)$/;
 const GROUP_JID = /^[0-9-]{5,40}@g\.us$/;
 
 export function unlinkedRepliesPath(dataDir = DATA_DIR): string {
@@ -199,10 +191,9 @@ export function unlinkedRepliesPath(dataDir = DATA_DIR): string {
 }
 
 /**
- * Shared number, a chat no business has linked:
- *   - personal chat: one short reply a day saying what this number is;
- *   - group: when someone mentions the assistant (@ or by name), one reply a
- *     day with the steps to get and send a join code.
+ * Shared number, a group no business has linked: when someone mentions the
+ * assistant (@ or by name), one reply a day with the steps to get and send a
+ * join code. Personal chats stay silent.
  * Anything else stays silent, as do messages typed on the bot phone itself.
  * The cooldown file keeps only a hash of the chat id and the time, so no
  * number is stored. Returns true if it replied.
@@ -215,7 +206,9 @@ export async function maybeReplyToUnlinkedChat(
 ): Promise<boolean> {
   if (event.channelType !== 'whatsapp' || event.message.kind !== 'chat') return false;
   const isGroup = event.message.isGroup === true;
-  if (isGroup ? !addressed || !GROUP_JID.test(event.platformId) : !PERSONAL_JID.test(event.platformId)) return false;
+  // Personal chats no business linked get no reply: the shared number never
+  // writes to someone it doesn't already serve.
+  if (!isGroup || !addressed || !GROUP_JID.test(event.platformId)) return false;
   try {
     const raw = event.message.content as unknown;
     const content = (typeof raw === 'string' ? JSON.parse(raw) : raw) as { fromMe?: unknown } | null;
@@ -239,7 +232,7 @@ export async function maybeReplyToUnlinkedChat(
   } catch (err) {
     log.warn('Could not save unlinked-chat reply time', { err });
   }
-  await reply(event, isGroup ? UNLINKED_GROUP_REPLY : UNLINKED_DM_REPLY);
+  await reply(event, UNLINKED_GROUP_REPLY);
   log.info('Replied to unlinked chat', { chat: idTag(event.platformId), isGroup });
   return true;
 }

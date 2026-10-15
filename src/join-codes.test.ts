@@ -16,7 +16,6 @@ import {
   matchJoinCode,
   maybeHandleJoinCode,
   maybeReplyToUnlinkedChat,
-  UNLINKED_DM_REPLY,
   UNLINKED_GROUP_REPLY,
   unlinkedRepliesPath,
 } from './join-codes.js';
@@ -83,21 +82,26 @@ describe('maybeHandleJoinCode', () => {
     expect(requests()).toEqual([]);
   });
 
-  it('links a DM sender by phone number, with a DM-specific confirmation', async () => {
+  it('links a DM sender by phone number without replying in the chat (the dashboard confirms)', async () => {
     arm({ AB23CD: { expiresAt: '2026-09-26T00:00:00.000Z' } });
     expect(await maybeHandleJoinCode(event(false, '919876543210@s.whatsapp.net'), 'join AB23CD', dir, NOW)).toBe(true);
     expect(requests()).toEqual([
       expect.objectContaining({ code: 'AB23CD', platformId: '919876543210@s.whatsapp.net' }),
     ]);
-    expect(JSON.parse(deliver.mock.calls[0][4]).text).toContain('Your number is now connected to **Miro**');
-    expect(JSON.parse(deliver.mock.calls[0][4]).text).toContain('https://miroflow.in/privacy');
+    expect(deliver).not.toHaveBeenCalled();
   });
 
-  it('refuses a DM whose sender is still an unresolved @lid', async () => {
+  it('ignores a DM whose sender is still an unresolved @lid, silently', async () => {
     arm({ AB23CD: { expiresAt: '2026-09-26T00:00:00.000Z' } });
     expect(await maybeHandleJoinCode(event(false, '123456789012345@lid'), 'join AB23CD', dir, NOW)).toBe(true);
     expect(requests()).toEqual([]);
-    expect(JSON.parse(deliver.mock.calls[0][4]).text).toContain("couldn't confirm your number");
+    expect(deliver).not.toHaveBeenCalled();
+  });
+
+  it('does not answer a bad code in a personal chat', async () => {
+    arm({ AB23CD: { expiresAt: '2026-09-25T09:00:00.000Z' } });
+    expect(await maybeHandleJoinCode(event(false, '919876543210@s.whatsapp.net'), 'join AB23CD', dir, NOW)).toBe(true);
+    expect(deliver).not.toHaveBeenCalled();
   });
 
   it('accepts an armed code: records the request and confirms in the group', async () => {
@@ -178,19 +182,10 @@ describe('maybeReplyToUnlinkedChat', () => {
   beforeEach(() => deliver.mockClear());
   const sentText = (n: number) => JSON.parse(deliver.mock.calls[n][4]).text as string;
 
-  it('replies once a day to an unlinked personal chat, and stores no number', async () => {
-    const dm = event(false, '918287614988@s.whatsapp.net');
-    expect(await maybeReplyToUnlinkedChat(dm, false, dir, NOW)).toBe(true);
-    expect(sentText(0)).toBe(UNLINKED_DM_REPLY);
-    expect(fs.readFileSync(unlinkedRepliesPath(dir), 'utf8')).not.toContain('8287614988');
-
-    expect(await maybeReplyToUnlinkedChat(dm, false, dir, NOW + 60 * 60 * 1000)).toBe(false);
-    expect(await maybeReplyToUnlinkedChat(dm, false, dir, NOW + 25 * 60 * 60 * 1000)).toBe(true);
-    expect(deliver).toHaveBeenCalledTimes(2);
-  });
-
-  it('also covers a personal chat known only by its hidden id', async () => {
-    expect(await maybeReplyToUnlinkedChat(event(false, '14624464351359@lid'), false, dir, NOW)).toBe(true);
+  it('never writes to an unlinked personal chat', async () => {
+    expect(await maybeReplyToUnlinkedChat(event(false, '918287614988@s.whatsapp.net'), true, dir, NOW)).toBe(false);
+    expect(await maybeReplyToUnlinkedChat(event(false, '14624464351359@lid'), true, dir, NOW)).toBe(false);
+    expect(deliver).not.toHaveBeenCalled();
   });
 
   it('in an unlinked group, answers a mention with the join code steps, once a day', async () => {
@@ -202,14 +197,15 @@ describe('maybeReplyToUnlinkedChat', () => {
     expect(sentText(0)).toContain('join AB23CD');
     expect(await maybeReplyToUnlinkedChat(group, true, dir, NOW + 60 * 1000)).toBe(false);
     expect(deliver).toHaveBeenCalledTimes(1);
+    expect(fs.readFileSync(unlinkedRepliesPath(dir), 'utf8')).not.toContain('120363413823499258');
   });
 
   it('stays silent for broadcasts, non-message events and messages typed on the bot phone', async () => {
     expect(await maybeReplyToUnlinkedChat(event(false, 'status@broadcast'), true, dir, NOW)).toBe(false);
-    const reaction = event(false, '918287614988@s.whatsapp.net');
+    const reaction = event(true);
     reaction.message.kind = 'reaction' as never;
     expect(await maybeReplyToUnlinkedChat(reaction, true, dir, NOW)).toBe(false);
-    const typedOnBotPhone = event(false, '918287614988@s.whatsapp.net');
+    const typedOnBotPhone = event(true);
     typedOnBotPhone.message.content = JSON.stringify({ text: 'hello', fromMe: true });
     expect(await maybeReplyToUnlinkedChat(typedOnBotPhone, true, dir, NOW)).toBe(false);
     expect(deliver).not.toHaveBeenCalled();

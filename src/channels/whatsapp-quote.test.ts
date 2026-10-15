@@ -67,9 +67,9 @@ describe("clearing the bot number's chats after each reply", () => {
     expect(hideChatListMatches('919687272526@s.whatsapp.net', '919687272526@s.whatsapp.net')).toBe(false);
   });
 
-  it('is on by default for a shared bot number, and can be turned off with "none"', () => {
-    expect(hideChatSetting(undefined, 'true')).toBe('all');
-    expect(hideChatSetting('', 'true')).toBe('all');
+  it('is off by default, even on a shared bot number (clear the phone by hand)', () => {
+    expect(hideChatSetting(undefined, 'true')).toBe('');
+    expect(hideChatSetting('', 'true')).toBe('');
     expect(hideChatSetting('none', 'true')).toBe('none');
     expect(hideChatSetting(undefined, undefined)).toBe('');
     expect(hideChatSetting('120363000000000001@g.us', undefined)).toBe('120363000000000001@g.us');

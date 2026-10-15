@@ -198,6 +198,52 @@ export function lidMentionJids(mentions: string[], unresolvedLids: Set<string>):
   });
 }
 
+/**
+ * Paces every outgoing WhatsApp send: at least `minGapMs` between sends and
+ * at most `perMinute` in any minute, in order. Bursts (many reminders due at
+ * the same minute) go out spread over time instead of all at once.
+ * Exported for unit testing.
+ */
+export class SendPacer {
+  private last = Number.NEGATIVE_INFINITY;
+  private recent: number[] = [];
+  private chain: Promise<void> = Promise.resolve();
+  constructor(
+    private readonly minGapMs = 1_500,
+    private readonly perMinute = 20,
+    private readonly clock: () => number = () => Date.now(),
+    private readonly sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  ) {}
+  /** Resolves when the next send may go out. */
+  next(): Promise<void> {
+    const turn = this.chain.then(() => this.slot());
+    this.chain = turn.catch(() => {});
+    return turn;
+  }
+  private async slot(): Promise<void> {
+    let now = this.clock();
+    this.recent = this.recent.filter((t) => now - t < 60_000);
+    let wait = Math.max(0, this.last + this.minGapMs - now);
+    if (this.recent.length >= this.perMinute) wait = Math.max(wait, this.recent[0]! + 60_000 - now);
+    if (wait > 0) {
+      await this.sleep(wait);
+      now = this.clock();
+    }
+    this.last = now;
+    this.recent.push(now);
+  }
+}
+
+/**
+ * Shared bot number: never start a conversation. Groups (which added the
+ * bot) are fine; a personal chat only once that person has messaged us.
+ * Exported for unit testing.
+ */
+export function mayMessageChat(jid: string, knownPersonalChats: Set<string>): boolean {
+  if (jid.endsWith('@g.us')) return true;
+  return knownPersonalChats.has(jid);
+}
+
 /** Offline gaps shorter than this are normal reconnects; longer than the max are too stale to answer. */
 export const MISSED_MIN_GAP_MS = 2 * 60_000;
 export const MISSED_MAX_GAP_MS = 48 * 60 * 60_000;
@@ -352,13 +398,13 @@ export function hideChatListMatches(list: string, jid: string): boolean {
 }
 
 /**
- * The effective WHATSAPP_HIDE_CHAT_JIDS: as set, else `all` on a shared bot
- * number (Miroflow: the bot phone keeps no chat history by default), else
- * nothing. Set `none` to turn it off on a shared number.
+ * The effective WHATSAPP_HIDE_CHAT_JIDS: as set, else nothing. Clearing is
+ * off by default everywhere: automated clears on the Miroflow number preceded
+ * both of its logouts and its ban, so the bot phone is cleared by hand.
  */
-export function hideChatSetting(configured: string | undefined, sharedNumber: string | undefined): string {
+export function hideChatSetting(configured: string | undefined, _sharedNumber: string | undefined): string {
   if (configured !== undefined && configured.trim() !== '') return configured;
-  return sharedNumber === 'true' ? 'all' : '';
+  return '';
 }
 
 export function extractQuotedReply(
@@ -531,6 +577,41 @@ registerChannelAdapter('whatsapp', {
     // Sent message cache for retry/re-encrypt requests
     const sentMessageCache = new Map<string, any>();
 
+    // Shared bot number safety: paced sends, and no message to a person who
+    // has never messaged this number (kept on disk across restarts).
+    const sharedNumber = readEnvFile(['NANOCLAW_SHARED_NUMBER']).NANOCLAW_SHARED_NUMBER === 'true';
+    const pacer = new SendPacer();
+    const knownChatsFile = path.join(process.cwd(), 'store', 'known-personal-chats.json');
+    const knownPersonalChats = new Set<string>(
+      (() => {
+        try {
+          const list = JSON.parse(fs.readFileSync(knownChatsFile, 'utf8')) as unknown;
+          return Array.isArray(list) ? list.filter((j): j is string => typeof j === 'string') : [];
+        } catch {
+          return [];
+        }
+      })(),
+    );
+    const notePersonalChat = (...jids: string[]) => {
+      const fresh = jids.filter((j) => j && !j.endsWith('@g.us') && !knownPersonalChats.has(j));
+      if (fresh.length === 0) return;
+      for (const j of fresh) knownPersonalChats.add(j);
+      try {
+        fs.writeFileSync(knownChatsFile, JSON.stringify([...knownPersonalChats]), { mode: 0o600 });
+      } catch {
+        /* best effort */
+      }
+    };
+    /** Every send goes through here: cold-chat guard, then the pacer. */
+    async function safeSend(jid: string, content: Parameters<WASocket['sendMessage']>[1]) {
+      if (sharedNumber && !mayMessageChat(jid, knownPersonalChats)) {
+        log.warn('Not sending: this person has never messaged the bot number', { jid: idTag(jid) });
+        return undefined;
+      }
+      await pacer.next();
+      return sock.sendMessage(jid, content);
+    }
+
     // Missed-message catch-up. The last time we were online is kept on disk
     // (outside store/auth, which a logout wipes). When a fresh link comes up
     // after a real gap, WhatsApp's history sync carries the messages sent in
@@ -647,6 +728,18 @@ registerChannelAdapter('whatsapp', {
 
     // Pairing code file for the setup skill to poll
     const pairingCodeFile = path.join(process.cwd(), 'store', 'pairing-code.txt');
+    // Relink by QR instead of a code (chosen in the Miroflow admin): the
+    // node-agent writes "qr" here before restarting; each rotating QR is then
+    // saved to pairing-qr.txt for it to send up. Both go once linked.
+    const pairMethodFile = path.join(process.cwd(), 'store', 'pair-method.txt');
+    const pairingQrFile = path.join(process.cwd(), 'store', 'pairing-qr.txt');
+    const qrPairing = (() => {
+      try {
+        return fs.readFileSync(pairMethodFile, 'utf8').trim() === 'qr';
+      } catch {
+        return false;
+      }
+    })();
 
     // --- Helpers ---
 
@@ -911,7 +1004,7 @@ registerChannelAdapter('whatsapp', {
           const item = outgoingQueue.shift()!;
           const payload: { text: string; mentions?: string[] } = { text: item.text };
           if (item.mentions && item.mentions.length > 0) payload.mentions = item.mentions;
-          const sent = await sock.sendMessage(item.jid, payload);
+          const sent = await safeSend(item.jid, payload);
           if (sent?.key?.id && sent.message) {
             cacheSentMessage(sent.key.id, sent.message);
           }
@@ -980,7 +1073,7 @@ registerChannelAdapter('whatsapp', {
       try {
         const payload: { text: string; mentions?: string[] } = { text };
         if (mentions && mentions.length > 0) payload.mentions = mentions;
-        const sent = await sock.sendMessage(jid, payload);
+        const sent = await safeSend(jid, payload);
         if (sent?.key?.id && sent.message) {
           cacheSentMessage(sent.key.id, sent.message);
         }
@@ -1089,7 +1182,7 @@ registerChannelAdapter('whatsapp', {
       // `state.creds.me` is set as part of the QR / pairing-code handshake
       // and is the authoritative "this socket has an account" signal.
       if (!state.creds.me) freshLink = true;
-      if (phoneNumber && !state.creds.me) {
+      if (phoneNumber && !state.creds.me && !qrPairing) {
         setTimeout(async () => {
           try {
             const code = await sock.requestPairingCode(phoneNumber);
@@ -1108,7 +1201,14 @@ registerChannelAdapter('whatsapp', {
 
         const { connection, lastDisconnect, qr } = update;
 
-        if (qr && !phoneNumber) {
+        if (qr && qrPairing) {
+          try {
+            fs.writeFileSync(pairingQrFile, qr, 'utf-8');
+            log.info('WhatsApp pairing QR ready - scan it from the Miroflow admin');
+          } catch (err) {
+            log.error('Failed to save pairing QR', { err });
+          }
+        } else if (qr && !phoneNumber) {
           // QR code auth — print to terminal
           (async () => {
             try {
@@ -1186,7 +1286,7 @@ registerChannelAdapter('whatsapp', {
 
           // Clean up pairing code file after successful connection
           try {
-            if (fs.existsSync(pairingCodeFile)) fs.unlinkSync(pairingCodeFile);
+            for (const f of [pairingCodeFile, pairingQrFile, pairMethodFile]) if (fs.existsSync(f)) fs.unlinkSync(f);
           } catch {
             /* ignore */
           }
@@ -1260,6 +1360,7 @@ registerChannelAdapter('whatsapp', {
             // Translate LID → phone JID using v7's alt JID from extractAddressingContext
             const chatJid = await translateJid(rawJid, msg.key.remoteJidAlt);
             if (!msg.key.fromMe) noteIncomingForClear(rawJid, chatJid, msg);
+            if (!msg.key.fromMe && !chatJid.endsWith('@g.us')) notePersonalChat(rawJid, chatJid);
 
             const timestamp = new Date(Number(msg.messageTimestamp) * 1000).toISOString();
             const isGroup = chatJid.endsWith('@g.us');
@@ -1473,7 +1574,7 @@ registerChannelAdapter('whatsapp', {
         // Reaction → emoji on a message
         if (content.operation === 'reaction' && content.messageId && content.emoji) {
           try {
-            await sock.sendMessage(platformId, {
+            await safeSend(platformId, {
               react: {
                 text: content.emoji as string,
                 key: {
@@ -1516,7 +1617,7 @@ registerChannelAdapter('whatsapp', {
               }
               const mediaMsg = buildMediaMessage(file.data, file.filename, ext, caption);
               if (captionMentions) mediaMsg.mentions = captionMentions;
-              const sent = await sock.sendMessage(platformId, mediaMsg);
+              const sent = await safeSend(platformId, mediaMsg);
               if (sent?.key?.id && sent.message) {
                 cacheSentMessage(sent.key.id, sent.message);
               }

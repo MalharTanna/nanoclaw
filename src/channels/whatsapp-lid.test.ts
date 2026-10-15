@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   lidMentionJids,
+  mayMessageChat,
   missedPrefix,
   parseWhatsAppMentions,
   pickMissedMessages,
   rewriteLidMentions,
+  SendPacer,
 } from './whatsapp.js';
 
 describe('rewriteLidMentions', () => {
@@ -78,5 +80,33 @@ describe('pickMissedMessages', () => {
     expect(missedPrefix(Date.parse('2026-10-13T19:45:00Z') / 1000, 'Asia/Kolkata')).toBe(
       '(sent at 1:15 AM while I was offline) ',
     );
+  });
+});
+
+describe('SendPacer', () => {
+  it('keeps a gap between sends and caps sends per minute', async () => {
+    let now = 0;
+    const waits: number[] = [];
+    const pacer = new SendPacer(
+      1_500,
+      3,
+      () => now,
+      async (ms) => {
+        waits.push(ms);
+        now += ms;
+      },
+    );
+    for (let i = 0; i < 4; i++) await pacer.next();
+    // 0, +1.5 s, +1.5 s, then the 4th waits until a minute after the 1st.
+    expect(waits).toEqual([1_500, 1_500, 57_000]);
+  });
+});
+
+describe('mayMessageChat', () => {
+  it('allows groups, and personal chats only once that person has messaged', () => {
+    const known = new Set(['919876543210@s.whatsapp.net']);
+    expect(mayMessageChat('120363413823499258@g.us', known)).toBe(true);
+    expect(mayMessageChat('919876543210@s.whatsapp.net', known)).toBe(true);
+    expect(mayMessageChat('918287614988@s.whatsapp.net', known)).toBe(false);
   });
 });
