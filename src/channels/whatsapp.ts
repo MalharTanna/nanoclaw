@@ -339,6 +339,10 @@ const QUOTE_TEXT_MAX = 2000;
  * (history stays in the session DBs, for memory and exports).
  */
 export function hideChatListMatches(list: string, jid: string): boolean {
+  // Groups only. Clearing a personal chat (seen with first-contact chats that
+  // WhatsApp addresses by hidden ID) got the bot number logged out (401)
+  // seconds later, twice; personal chats keep their history on the bot phone.
+  if (!jid.toLowerCase().endsWith('@g.us')) return false;
   const entries = list
     .split(',')
     .map((s) => s.trim().toLowerCase())

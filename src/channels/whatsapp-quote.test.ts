@@ -51,7 +51,7 @@ describe('extractQuotedReply', () => {
   });
 });
 
-describe('clearing the bot number\'s chats after each reply', () => {
+describe("clearing the bot number's chats after each reply", () => {
   it('WHATSAPP_HIDE_CHAT_JIDS takes a list of chats or "all"', () => {
     const g = '120363000000000001@g.us';
     expect(hideChatListMatches('', g)).toBe(false);
@@ -59,6 +59,12 @@ describe('clearing the bot number\'s chats after each reply', () => {
     expect(hideChatListMatches('919800000000@s.whatsapp.net', g)).toBe(false);
     expect(hideChatListMatches(' ALL ', g)).toBe(true);
     expect(hideChatListMatches('none', g)).toBe(false);
+  });
+
+  it('never clears a personal chat, even with "all" (that logged the number out)', () => {
+    expect(hideChatListMatches('all', '919687272526@s.whatsapp.net')).toBe(false);
+    expect(hideChatListMatches('all', '14624464351359@lid')).toBe(false);
+    expect(hideChatListMatches('919687272526@s.whatsapp.net', '919687272526@s.whatsapp.net')).toBe(false);
   });
 
   it('is on by default for a shared bot number, and can be turned off with "none"', () => {
@@ -75,7 +81,9 @@ describe('clearing the bot number\'s chats after each reply', () => {
     const botReply = extractQuotedReply(reply({ conversation: '*Miro:* Court 19 is at Sr. No. 42' }), 'Miro');
     expect(botReply).toMatchObject({ fromBot: true, text: 'Court 19 is at Sr. No. 42' });
     const doc = extractQuotedReply(
-      reply({ documentMessage: { fileName: 'order.pdf', mimetype: 'application/pdf', mediaKey: 'k', directPath: '/d' } }),
+      reply({
+        documentMessage: { fileName: 'order.pdf', mimetype: 'application/pdf', mediaKey: 'k', directPath: '/d' },
+      }),
       'Miro',
     );
     expect(doc?.text).toContain('[document: order.pdf]');
