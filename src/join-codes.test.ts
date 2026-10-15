@@ -153,6 +153,14 @@ describe('maybeHandleJoinCode', () => {
     expect(JSON.parse(deliver.mock.calls[0]![4]).text).toContain('this plan allows groups of up to 20');
   });
 
+  it('accepts a code that was valid when the message was sent, even if handled later (after an outage)', async () => {
+    arm({ AB23CD: { expiresAt: '2026-09-25T09:00:00.000Z' } }); // expired an hour before NOW
+    const late = event();
+    late.message.timestamp = '2026-09-25T08:45:00.000Z'; // sent while it was still valid
+    expect(await maybeHandleJoinCode(late, 'join AB23CD', dir, NOW)).toBe(true);
+    expect(requests()).toEqual([expect.objectContaining({ code: 'AB23CD', sentAt: '2026-09-25T08:45:00.000Z' })]);
+  });
+
   it('rejects unknown and expired codes, replying at most once per chat per 10 minutes', async () => {
     arm({ AB23CD: { expiresAt: '2026-09-25T09:00:00.000Z' } });
     expect(await maybeHandleJoinCode(event(), 'join AB23CD', dir, NOW)).toBe(true);

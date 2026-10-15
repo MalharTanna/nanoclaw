@@ -46,6 +46,8 @@ export interface ArmedCode {
 
 export interface LinkRequest {
   ts: string;
+  /** When the join message was sent (differs from ts for messages answered after an outage). */
+  sentAt?: string;
   code: string;
   tenantId: string;
   agentGroupId: string;
@@ -173,8 +175,12 @@ export async function maybeHandleJoinCode(
     return true;
   }
 
+  // A code is judged by when the message was sent, so one sent during an
+  // outage and handled once Miro is back still counts.
+  const sent = Date.parse(event.message.timestamp);
+  const sentAt = Number.isFinite(sent) ? Math.min(now, sent) : now;
   const armed = codes[code];
-  if (!armed || Date.parse(armed.expiresAt) <= now) {
+  if (!armed || Date.parse(armed.expiresAt) <= sentAt) {
     const last = invalidRepliedAt.get(event.platformId) ?? 0;
     if (isGroup && now - last >= INVALID_REPLY_COOLDOWN_MS) {
       invalidRepliedAt.set(event.platformId, now);
@@ -205,6 +211,7 @@ export async function maybeHandleJoinCode(
 
   const request: LinkRequest = {
     ts: new Date(now).toISOString(),
+    ...(sentAt < now ? { sentAt: new Date(sentAt).toISOString() } : {}),
     code,
     tenantId: armed.tenantId,
     agentGroupId: armed.agentGroupId,
