@@ -37,6 +37,8 @@ export interface ArmedCode {
   tenantId: string;
   agentGroupId: string;
   assistantName: string;
+  /** The business that issued the code; named in the group notice. */
+  businessName?: string;
   expiresAt: string; // ISO-8601 UTC
 }
 
@@ -103,11 +105,13 @@ export const PRIVACY_URL = 'https://miroflow.in/privacy';
  * asked for (the customer stays responsible for telling their group; this
  * makes sure everyone in it sees the basics).
  */
-export function groupNotice(assistantName: string): string {
+export function groupNotice(assistantName: string, businessName?: string): string {
+  const who = businessName?.trim() ? `*${businessName.trim()}* has connected this group to` : 'This group is now connected to';
   return (
-    `✅ This group is now connected to **${assistantName}**, an AI assistant by Miroflow. Mention me with @ to ask anything.\n\n` +
+    `✅ ${who} **${assistantName}**, an AI assistant by Miroflow. I only reply when someone mentions me with @ or by name.\n\n` +
     `ℹ️ *For everyone in this group:* messages sent to ${assistantName}, and files shared with it, are processed by Miroflow and its AI provider to reply. ` +
-    `Replies and those messages are kept while the business's Miroflow account is active, so the assistant can remember context. Privacy: ${PRIVACY_URL}`
+    `Replies and those messages are kept while the business's Miroflow account is active, so the assistant can remember context. Privacy: ${PRIVACY_URL}\n\n` +
+    `To remove me, a group admin can open the group info, tap ${assistantName} and choose Remove.`
   );
 }
 
@@ -159,7 +163,7 @@ export async function maybeHandleJoinCode(
   };
   fs.appendFileSync(linkRequestsPath(dataDir), JSON.stringify(request) + '\n', { mode: 0o600 });
   log.info('Join code accepted', { chat: idTag(event.platformId), tenantId: armed.tenantId });
-  if (isGroup) await reply(event, groupNotice(armed.assistantName));
+  if (isGroup) await reply(event, groupNotice(armed.assistantName, armed.businessName));
   return true;
 }
 

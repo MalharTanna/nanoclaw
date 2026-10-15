@@ -168,6 +168,13 @@ describe('isSharedNumber', () => {
 });
 
 describe('group notice', () => {
+  it('names the business that added the assistant, says it only replies when mentioned, and how to remove it', () => {
+    const text = groupNotice('Miro', 'Fidiots Media');
+    expect(text).toContain('*Fidiots Media* has connected this group to **Miro**');
+    expect(text).toContain('I only reply when someone mentions me');
+    expect(text).toContain('open the group info, tap Miro and choose Remove');
+  });
+
   it('tells every member what is processed, for how long, and where the privacy notice is', () => {
     const text = groupNotice('Miro');
     expect(text).toContain('connected to **Miro**, an AI assistant by Miroflow');
