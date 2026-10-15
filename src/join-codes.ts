@@ -39,6 +39,8 @@ export interface ArmedCode {
   assistantName: string;
   /** The business that issued the code; named in the group notice. */
   businessName?: string;
+  /** Largest group the business's plan allows. */
+  maxGroupMembers?: number;
   expiresAt: string; // ISO-8601 UTC
 }
 
@@ -117,7 +119,11 @@ export function groupNotice(assistantName: string, businessName?: string): strin
   );
 }
 
-/** Groups larger than this (members) can't be linked; nor can community or announcement groups. */
+/**
+ * Largest group (members) that can be linked when the code doesn't say (the
+ * control plane sends the plan's limit: Standard 20, Premium 50). Community
+ * and announcement groups can't be linked at all.
+ */
 export const MAX_GROUP_MEMBERS = 50;
 
 function groupInfoOf(event: InboundEvent): { size: number; community: boolean } | null {
@@ -134,10 +140,10 @@ function groupInfoOf(event: InboundEvent): { size: number; community: boolean } 
   }
 }
 
-export function groupTooLargeNotice(info: { size: number; community: boolean }): string {
+export function groupTooLargeNotice(info: { size: number; community: boolean }, limit = MAX_GROUP_MEMBERS): string {
   const why = info.community
     ? 'this is a WhatsApp community or announcement group'
-    : `this group has ${info.size} members, and Miro works in groups of up to ${MAX_GROUP_MEMBERS}`;
+    : `this group has ${info.size} members, and this plan allows groups of up to ${limit}`;
   return (
     `⚠️ Miro can't be added here: ${why}. Miro is meant for teams and clients who know each other; ` +
     'large and community groups can get its WhatsApp number blocked. Please use it in a smaller group. Your join code still works there.'
@@ -167,21 +173,6 @@ export async function maybeHandleJoinCode(
     return true;
   }
 
-  // Large and community groups are refused: members there often don't know
-  // each other, and reports from them are what gets a number blocked.
-  if (isGroup) {
-    const info = groupInfoOf(event);
-    if (info && (info.community || info.size > MAX_GROUP_MEMBERS)) {
-      const last = invalidRepliedAt.get(event.platformId) ?? 0;
-      if (now - last >= INVALID_REPLY_COOLDOWN_MS) {
-        invalidRepliedAt.set(event.platformId, now);
-        await reply(event, groupTooLargeNotice(info));
-      }
-      log.info('Join code refused: group too large or a community', { chat: idTag(event.platformId), size: info.size });
-      return true;
-    }
-  }
-
   const armed = codes[code];
   if (!armed || Date.parse(armed.expiresAt) <= now) {
     const last = invalidRepliedAt.get(event.platformId) ?? 0;
@@ -194,6 +185,22 @@ export async function maybeHandleJoinCode(
     }
     log.info('Join code rejected', { chat: idTag(event.platformId) });
     return true;
+  }
+
+  // Large and community groups are refused: members there often don't know
+  // each other, and reports from them are what gets a number blocked.
+  if (isGroup) {
+    const info = groupInfoOf(event);
+    const limit = armed.maxGroupMembers ?? MAX_GROUP_MEMBERS;
+    if (info && (info.community || info.size > limit)) {
+      const last = invalidRepliedAt.get(event.platformId) ?? 0;
+      if (now - last >= INVALID_REPLY_COOLDOWN_MS) {
+        invalidRepliedAt.set(event.platformId, now);
+        await reply(event, groupTooLargeNotice(info, limit));
+      }
+      log.info('Join code refused: group too large or a community', { chat: idTag(event.platformId), size: info.size });
+      return true;
+    }
   }
 
   const request: LinkRequest = {

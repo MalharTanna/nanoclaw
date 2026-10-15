@@ -32,7 +32,7 @@ function event(isGroup = true, platformId = '120363413823499258@g.us'): InboundE
   } as InboundEvent;
 }
 
-function arm(codes: Record<string, { expiresAt: string }>) {
+function arm(codes: Record<string, { expiresAt: string; maxGroupMembers?: number }>) {
   const full = Object.fromEntries(
     Object.entries(codes).map(([c, v]) => [
       c,
@@ -124,7 +124,7 @@ describe('maybeHandleJoinCode', () => {
     expect(fs.readFileSync(linkRequestsPath(dir), 'utf-8')).not.toContain('sender');
   });
 
-  it('refuses groups over 50 members and community groups, without using the code', async () => {
+  it('refuses groups over the plan limit (default 50) and community groups, without using the code', async () => {
     arm({ AB23CD: { expiresAt: '2026-09-26T00:00:00.000Z' } });
     const big = event();
     big.message.content = JSON.stringify({ text: 'join AB23CD', groupInfo: { size: 120, community: false } });
@@ -142,6 +142,15 @@ describe('maybeHandleJoinCode', () => {
     small.message.content = JSON.stringify({ text: 'join AB23CD', groupInfo: { size: 12, community: false } });
     expect(await maybeHandleJoinCode(small, 'join AB23CD', dir, NOW)).toBe(true);
     expect(requests()).toHaveLength(1);
+  });
+
+  it('uses the plan limit the code carries (Standard: 20)', async () => {
+    arm({ KM4PQR: { expiresAt: '2026-09-26T00:00:00.000Z', maxGroupMembers: 20 } });
+    const g = event(true, '120363000000000097@g.us');
+    g.message.content = JSON.stringify({ text: 'join KM4PQR', groupInfo: { size: 25, community: false } });
+    expect(await maybeHandleJoinCode(g, 'join KM4PQR', dir, NOW)).toBe(true);
+    expect(requests()).toEqual([]);
+    expect(JSON.parse(deliver.mock.calls[0]![4]).text).toContain('this plan allows groups of up to 20');
   });
 
   it('rejects unknown and expired codes, replying at most once per chat per 10 minutes', async () => {
