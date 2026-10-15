@@ -1183,6 +1183,18 @@ registerChannelAdapter('whatsapp', {
       // `state.creds.me` is set as part of the QR / pairing-code handshake
       // and is the authoritative "this socket has an account" signal.
       if (!state.creds.me) freshLink = true;
+      // Set the catch-up window now: WhatsApp can send the history sync before
+      // the connection reports "open". Live messages in the window are deduped.
+      if (freshLink && !catchup) {
+        const lastOnline = readLastOnline();
+        const gap = lastOnline ? Date.now() - lastOnline : 0;
+        if (lastOnline && gap > MISSED_MIN_GAP_MS && gap < MISSED_MAX_GAP_MS) {
+          catchup = { since: lastOnline, until: Date.now() + 10 * 60_000, openUntil: Date.now() + 20 * 60_000 };
+          log.info('Fresh link after a gap - will answer messages missed meanwhile', {
+            offlineMinutes: Math.round(gap / 60_000),
+          });
+        }
+      }
       if (phoneNumber && !state.creds.me && !qrPairing) {
         setTimeout(async () => {
           try {
@@ -1275,17 +1287,6 @@ registerChannelAdapter('whatsapp', {
           reconnectAttempt = 0;
           log.info('Connected to WhatsApp');
 
-          // Back after a real gap: accept the history sync's messages from it
-          // for the next 15 minutes. A second open (e.g. the restart right
-          // after pairing) keeps the window already set.
-          const lastOnline = readLastOnline();
-          const gap = lastOnline ? Date.now() - lastOnline : 0;
-          if (freshLink && !catchup && lastOnline && gap > MISSED_MIN_GAP_MS && gap < MISSED_MAX_GAP_MS) {
-            catchup = { since: lastOnline, until: Date.now(), openUntil: Date.now() + 15 * 60_000 };
-            log.info('Back online after a gap - will answer messages missed meanwhile', {
-              offlineMinutes: Math.round(gap / 60_000),
-            });
-          }
           noteOnline(true);
 
           // Clean up pairing code file after successful connection
@@ -1446,6 +1447,10 @@ registerChannelAdapter('whatsapp', {
             // (no agent wired + non-mention → silent drop), so the agent is
             // never woken in conversations the user hasn't explicitly wired.
             if (fromMe) {
+              // Shared bot number: a message typed on the bot phone itself is the
+              // operator, never a request; answering it would write into a
+              // customer's chat unprompted.
+              if (sharedNumber) continue;
               if (sentMessageCache.has(msg.key.id || '')) continue;
               if (!ASSISTANT_HAS_OWN_NUMBER && content.startsWith(`${ASSISTANT_NAME}:`)) continue;
             }
