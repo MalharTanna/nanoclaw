@@ -39,6 +39,7 @@ import {
 import type { GroupMetadata, WAMessageKey, WAMessage, WASocket } from '@whiskeysockets/baileys';
 
 import { isSafeAttachmentName } from '../attachment-safety.js';
+import { noteConnectionDrop } from '../automation-pause.js';
 import { ASSISTANT_HAS_OWN_NUMBER, ASSISTANT_NAME, TIMEZONE } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
@@ -1232,6 +1233,9 @@ registerChannelAdapter('whatsapp', {
 
           log.info('WhatsApp connection closed', { reason, shouldReconnect, shuttingDown });
 
+          if (shouldReconnect && sharedNumber && noteConnectionDrop()) {
+            log.warn('WhatsApp unstable: pausing automated reminders for 1 hour');
+          }
           if (shouldReconnect) {
             scheduleReconnect();
           } else if (reason === DisconnectReason.loggedOut) {

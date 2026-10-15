@@ -26,6 +26,7 @@
  *        → kill + reset this message + tries++. Semantics: "container
  *        claimed a message and went quiet past tolerance since the claim."
  */
+import { automationPausedUntil } from './automation-pause.js';
 import type Database from 'better-sqlite3';
 import fs from 'fs';
 
@@ -211,12 +212,14 @@ async function sweepSession(session: Session): Promise<void> {
     // would keep bumping process_after into the future, dueCount would stay 0,
     // and the wake would never fire.
     // 1b. Plain reminders go out directly, so they never wake the agent.
-    if (!isQuotaBlocked(session.agent_group_id)) {
+    // An unstable WhatsApp connection pauses scheduled work (automation-pause.ts).
+    const paused = automationPausedUntil() !== null;
+    if (!isQuotaBlocked(session.agent_group_id) && !paused) {
       const { deliverDuePlainReminders } = await import('./modules/scheduling/direct-reminders.js');
       await deliverDuePlainReminders(inDb, session.agent_group_id);
     }
 
-    const dueCount = countDueMessages(inDb);
+    const dueCount = countDueMessages(inDb, { excludeTasks: paused });
     let justWoke = false;
     if (dueCount > 0 && !isContainerRunning(session.id) && isQuotaBlocked(session.agent_group_id)) {
       // Plan limit reached: due work (scheduled tasks, retries) stays pending

@@ -133,14 +133,14 @@ export function insertMessage(
   });
 }
 
-export function countDueMessages(db: Database.Database): number {
+export function countDueMessages(db: Database.Database, opts: { excludeTasks?: boolean } = {}): number {
   return (
     db
       .prepare(
         `SELECT COUNT(*) as count FROM messages_in
        WHERE status = 'pending'
          AND trigger = 1
-         AND (process_after IS NULL OR datetime(process_after) <= datetime('now'))`,
+         AND (process_after IS NULL OR datetime(process_after) <= datetime('now'))${opts.excludeTasks ? "\n         AND kind != 'task'" : ''}`,
       )
       .get() as { count: number }
   ).count;

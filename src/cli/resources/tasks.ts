@@ -2,7 +2,9 @@ import fs from 'fs';
 
 import type Database from 'better-sqlite3';
 
-import { GROUPS_DIR } from '../../config.js';
+import { CronExpressionParser } from 'cron-parser';
+
+import { GROUPS_DIR, TIMEZONE } from '../../config.js';
 import { getAgentGroup } from '../../db/agent-groups.js';
 import {
   findTaskSessions,
@@ -253,10 +255,13 @@ function createTask(args: Record<string, unknown>, ctx: CallerContext) {
     recurrence,
     processAfter: str(args.process_after),
     script,
-    dangerouslyOverrideRecurrenceLimit: bool(args.dangerously_override_recurrence_limit),
+    // The shared bot number never takes the override: steady automated
+    // traffic was one of the things that got its number banned.
+    dangerouslyOverrideRecurrenceLimit: !tenantLocked() && bool(args.dangerously_override_recurrence_limit),
   });
   const originSessionId = ctx.caller === 'agent' ? ctx.sessionId : null;
   const originDestination = originDestinationOf(group, originSessionId);
+  if (tenantLocked() && originDestination) enforceDailyChatLimit(group, originDestination, prepared);
   // The same reminder asked for twice (a repeated or quoted request) is not created twice.
   if (originDestination) {
     const dup = findDuplicateTask(group, originDestination, prepared);
@@ -269,6 +274,71 @@ function createTask(args: Record<string, unknown>, ctx: CallerContext) {
   }
   const { session, row } = createScheduledTask(group, prepared, { originSessionId, originDestination });
   return toOutput(session, row);
+}
+
+/** Shared bot number: reminder messages a chat may get on one day (repeating ones counted per fire). */
+export const DAILY_REMINDERS_PER_CHAT = 4;
+
+/** Calendar day (install time zone) of a timestamp, as YYYY-MM-DD. */
+function dayOf(ms: number): string {
+  return new Date(ms).toLocaleDateString('en-CA', { timeZone: TIMEZONE });
+}
+
+/**
+ * How many times a task fires on `day` (YYYY-MM-DD, install time zone): its
+ * cron fires that day for a repeating task, else 1 if its time falls on it.
+ * Exported for unit testing.
+ */
+export function firesOnDay(task: { processAfter: string | null; recurrence: string | null }, day: string): number {
+  if (!task.processAfter) return 0;
+  const first = new Date(task.processAfter).getTime();
+  if (!task.recurrence) return dayOf(first) === day ? 1 : 0;
+  // Scan a little past the day either side; count fires whose local day matches.
+  const from = new Date(new Date(`${day}T00:00:00Z`).getTime() - 15 * 3_600_000);
+  const until = new Date(from.getTime() + 54 * 3_600_000);
+  const it = CronExpressionParser.parse(task.recurrence, {
+    tz: TIMEZONE,
+    currentDate: new Date(Math.max(from.getTime(), first - 1)),
+  });
+  let n = 0;
+  for (let i = 0; i < 200; i++) {
+    const next = it.next().getTime();
+    if (next > until.getTime()) break;
+    if (next >= first && dayOf(next) === day) n++;
+  }
+  return n;
+}
+
+function enforceDailyChatLimit(
+  group: string,
+  destination: string,
+  task: { recurrence: string | null; processAfter: string },
+): void {
+  const day = dayOf(new Date(task.processAfter).getTime());
+  const adding = firesOnDay(task, day);
+  if (adding === 0) return;
+  let existing = 0;
+  for (const s of findTaskSessions(group)) {
+    const session = { id: s.id, agent_group_id: s.agent_group_id };
+    existing +=
+      withInbound(session, (db) =>
+        selectLiveTasks(db).reduce((sum, row) => {
+          try {
+            if ((JSON.parse(row.content) as { originDestination?: string }).originDestination !== destination)
+              return sum;
+          } catch {
+            return sum;
+          }
+          return sum + firesOnDay({ processAfter: row.process_after, recurrence: row.recurrence ?? null }, day);
+        }, 0),
+      ) ?? 0;
+  }
+  if (existing + adding > DAILY_REMINDERS_PER_CHAT) {
+    throw new Error(
+      `This chat already has ${existing} reminder message${existing === 1 ? '' : 's'} on ${day}. ` +
+        `On the Miroflow number a chat can get at most ${DAILY_REMINDERS_PER_CHAT} a day, so combine reminders into fewer messages or choose another day.`,
+    );
+  }
 }
 
 /** A live task in the same chat with the same time, schedule and (normalised) text. */
@@ -482,7 +552,11 @@ function updateTaskCommand(args: Record<string, unknown>, ctx: CallerContext) {
         }
       }
     }
-    enforceRecurrenceLimit(recurrence, bool(args.dangerously_override_recurrence_limit), scriptAfter != null);
+    enforceRecurrenceLimit(
+      recurrence,
+      !tenantLocked() && bool(args.dangerously_override_recurrence_limit),
+      scriptAfter != null,
+    );
     update.recurrence = recurrence;
   }
   if (script !== undefined) update.script = script;

@@ -396,7 +396,13 @@ describe('tasks CLI resource', () => {
         unknown_sender_policy: 'public',
         created_at: now(),
       });
-      createDestination({ agent_group_id: 'ag-1', local_name: `whatsapp-${mg}`, target_type: 'channel', target_id: mg, created_at: now() });
+      createDestination({
+        agent_group_id: 'ag-1',
+        local_name: `whatsapp-${mg}`,
+        target_type: 'channel',
+        target_id: mg,
+        created_at: now(),
+      });
       createSession({
         id: session,
         agent_group_id: 'ag-1',
@@ -412,7 +418,14 @@ describe('tasks CLI resource', () => {
       return { caller: 'agent', agentGroupId: 'ag-1', sessionId: session, messagingGroupId: mg };
     }
     async function create(ctx: CallerContext, name: string): Promise<string> {
-      const r = await dispatch({ id: `c-${name}`, command: 'tasks-create', args: { name, prompt: name, process_after: '2999-01-01T00:00:00Z' } }, ctx);
+      const r = await dispatch(
+        {
+          id: `c-${name}`,
+          command: 'tasks-create',
+          args: { name, prompt: name, process_after: '2999-01-01T00:00:00Z' },
+        },
+        ctx,
+      );
       if (!r.ok) throw new Error(JSON.stringify(r));
       return (r.data as { series_id: string }).series_id;
     }
@@ -424,6 +437,34 @@ describe('tasks CLI resource', () => {
 
     afterEach(() => {
       delete process.env.NANOCLAW_SHARED_NUMBER;
+    });
+
+    it('caps a chat at 4 reminder messages a day on the shared number, counting repeating fires, with no override', async () => {
+      process.env.NANOCLAW_SHARED_NUMBER = 'true';
+      const a = chat('mg-cap', 'chat-cap');
+      const b = chat('mg-cap2', 'chat-cap2');
+      const add = (ctx: CallerContext, name: string, args: Record<string, unknown>) =>
+        dispatch(
+          { id: `c-${name}`, command: 'tasks-create', args: { name, message: `Reminder: ${name}`, ...args } },
+          ctx,
+        );
+
+      // 3 repeating fires on 1 Mar 2999 (10:00, 12:00, 14:00 IST), then one-offs.
+      expect((await add(a, 'water', { recurrence: '0 10,12,14 * * *', process_after: '2999-03-01 10:00' })).ok).toBe(
+        true,
+      );
+      expect((await add(a, 'quote', { process_after: '2999-03-01 16:00' })).ok).toBe(true);
+      const fifth = await add(a, 'call', { process_after: '2999-03-01 17:00' });
+      expect(fifth.ok).toBe(false);
+      expect(JSON.stringify(fifth)).toContain('at most 4 a day');
+      // Another day, or another chat, is fine.
+      // 3 Mar: the repeating one fires 3 times, so one more is the 4th (fine), a 5th is not.
+      expect((await add(a, 'call', { process_after: '2999-03-03 17:00' })).ok).toBe(true);
+      expect((await add(a, 'call2', { process_after: '2999-03-03 18:00' })).ok).toBe(false);
+      expect((await add(b, 'call', { process_after: '2999-03-01 17:00' })).ok).toBe(true);
+      // The recurrence override is ignored on the shared number.
+      const hourly = await add(b, 'hourly', { recurrence: '0 * * * *', dangerously_override_recurrence_limit: true });
+      expect(hourly.ok).toBe(false);
     });
 
     it('a chat sees and changes only its own tasks; cancel --all stays in the chat', async () => {
@@ -452,7 +493,7 @@ describe('tasks CLI resource', () => {
       expect(got.ok && (got.data as { prompt: string }).prompt).toBe('court-watch');
     });
 
-    it('a task run sees its own chat\'s tasks only', async () => {
+    it("a task run sees its own chat's tasks only", async () => {
       const a = chat('mg-a', 'chat-a');
       const b = chat('mg-b', 'chat-b');
       const ta = await create(a, 'first');
@@ -460,7 +501,12 @@ describe('tasks CLI resource', () => {
       const tb = await create(b, 'other');
       process.env.NANOCLAW_SHARED_NUMBER = 'true';
       const runSession = getSessionsByAgentGroup('ag-1').find((s) => s.thread_id === taskThreadId(ta))!;
-      const ids = await listIds({ caller: 'agent', agentGroupId: 'ag-1', sessionId: runSession.id, messagingGroupId: '' });
+      const ids = await listIds({
+        caller: 'agent',
+        agentGroupId: 'ag-1',
+        sessionId: runSession.id,
+        messagingGroupId: '',
+      });
       expect(ids.sort()).toEqual([ta, ta2].sort());
       expect(ids).not.toContain(tb);
     });
