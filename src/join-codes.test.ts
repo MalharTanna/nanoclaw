@@ -124,6 +124,26 @@ describe('maybeHandleJoinCode', () => {
     expect(fs.readFileSync(linkRequestsPath(dir), 'utf-8')).not.toContain('sender');
   });
 
+  it('refuses groups over 50 members and community groups, without using the code', async () => {
+    arm({ AB23CD: { expiresAt: '2026-09-26T00:00:00.000Z' } });
+    const big = event();
+    big.message.content = JSON.stringify({ text: 'join AB23CD', groupInfo: { size: 120, community: false } });
+    expect(await maybeHandleJoinCode(big, 'join AB23CD', dir, NOW)).toBe(true);
+    expect(requests()).toEqual([]);
+    expect(JSON.parse(deliver.mock.calls[0]![4]).text).toContain('120 members');
+
+    deliver.mockClear();
+    const community = event(true, '120363000000000099@g.us');
+    community.message.content = JSON.stringify({ text: 'join AB23CD', groupInfo: { size: 8, community: true } });
+    expect(await maybeHandleJoinCode(community, 'join AB23CD', dir, NOW)).toBe(true);
+    expect(JSON.parse(deliver.mock.calls[0]![4]).text).toContain('community');
+
+    const small = event(true, '120363000000000098@g.us');
+    small.message.content = JSON.stringify({ text: 'join AB23CD', groupInfo: { size: 12, community: false } });
+    expect(await maybeHandleJoinCode(small, 'join AB23CD', dir, NOW)).toBe(true);
+    expect(requests()).toHaveLength(1);
+  });
+
   it('rejects unknown and expired codes, replying at most once per chat per 10 minutes', async () => {
     arm({ AB23CD: { expiresAt: '2026-09-25T09:00:00.000Z' } });
     expect(await maybeHandleJoinCode(event(), 'join AB23CD', dir, NOW)).toBe(true);

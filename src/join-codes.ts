@@ -106,12 +106,41 @@ export const PRIVACY_URL = 'https://miroflow.in/privacy';
  * makes sure everyone in it sees the basics).
  */
 export function groupNotice(assistantName: string, businessName?: string): string {
-  const who = businessName?.trim() ? `*${businessName.trim()}* has connected this group to` : 'This group is now connected to';
+  const who = businessName?.trim()
+    ? `*${businessName.trim()}* has connected this group to`
+    : 'This group is now connected to';
   return (
     `✅ ${who} **${assistantName}**, an AI assistant by Miroflow. I only reply when someone mentions me with @ or by name.\n\n` +
     `ℹ️ *For everyone in this group:* messages sent to ${assistantName}, and files shared with it, are processed by Miroflow and its AI provider to reply. ` +
     `Replies and those messages are kept while the business's Miroflow account is active, so the assistant can remember context. Privacy: ${PRIVACY_URL}\n\n` +
     `To remove me, a group admin can open the group info, tap ${assistantName} and choose Remove.`
+  );
+}
+
+/** Groups larger than this (members) can't be linked; nor can community or announcement groups. */
+export const MAX_GROUP_MEMBERS = 50;
+
+function groupInfoOf(event: InboundEvent): { size: number; community: boolean } | null {
+  try {
+    const raw = event.message.content as unknown;
+    const c = (typeof raw === 'string' ? JSON.parse(raw) : raw) as {
+      groupInfo?: { size?: unknown; community?: unknown };
+    } | null;
+    const g = c?.groupInfo;
+    if (!g || typeof g.size !== 'number') return null;
+    return { size: g.size, community: g.community === true };
+  } catch {
+    return null;
+  }
+}
+
+export function groupTooLargeNotice(info: { size: number; community: boolean }): string {
+  const why = info.community
+    ? 'this is a WhatsApp community or announcement group'
+    : `this group has ${info.size} members, and Miro works in groups of up to ${MAX_GROUP_MEMBERS}`;
+  return (
+    `⚠️ Miro can't be added here: ${why}. Miro is meant for teams and clients who know each other; ` +
+    'large and community groups can get its WhatsApp number blocked. Please use it in a smaller group. Your join code still works there.'
   );
 }
 
@@ -136,6 +165,21 @@ export async function maybeHandleJoinCode(
   if (!isGroup && !PHONE_DM_JID.test(event.platformId)) {
     log.info('Join code in a DM from an unresolved sender', { channelType: event.channelType });
     return true;
+  }
+
+  // Large and community groups are refused: members there often don't know
+  // each other, and reports from them are what gets a number blocked.
+  if (isGroup) {
+    const info = groupInfoOf(event);
+    if (info && (info.community || info.size > MAX_GROUP_MEMBERS)) {
+      const last = invalidRepliedAt.get(event.platformId) ?? 0;
+      if (now - last >= INVALID_REPLY_COOLDOWN_MS) {
+        invalidRepliedAt.set(event.platformId, now);
+        await reply(event, groupTooLargeNotice(info));
+      }
+      log.info('Join code refused: group too large or a community', { chat: idTag(event.platformId), size: info.size });
+      return true;
+    }
   }
 
   const armed = codes[code];

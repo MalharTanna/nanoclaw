@@ -1477,6 +1477,23 @@ registerChannelAdapter('whatsapp', {
 
             if (missedWhileOffline) content = missedPrefix(Number(msg.messageTimestamp), TIMEZONE) + content;
 
+            // A join code in a group: tell the join-code check how big the
+            // group is, so large and community groups can be refused.
+            let groupInfo: { size: number; community: boolean } | undefined;
+            if (isGroup && /^\s*join\s+[a-z0-9]{6}\s*$/i.test(content)) {
+              try {
+                const meta = await getNormalizedGroupMetadata(rawJid);
+                if (meta) {
+                  groupInfo = {
+                    size: meta.size ?? meta.participants?.length ?? 0,
+                    community: Boolean(meta.isCommunity || meta.isCommunityAnnounce || meta.linkedParent),
+                  };
+                }
+              } catch (err) {
+                log.debug('Group size unavailable for join check', { jid: idTag(rawJid), err });
+              }
+            }
+
             const inbound: InboundMessage = {
               id: msg.key.id || `wa-${Date.now()}`,
               kind: 'chat',
@@ -1498,6 +1515,7 @@ registerChannelAdapter('whatsapp', {
                 isBotMessage,
                 isGroup,
                 chatJid,
+                ...(groupInfo && { groupInfo }),
               },
               timestamp,
             };
