@@ -29,6 +29,7 @@ import {
   makeTaskId,
   MAX_DAILY_FIRES,
   parseProcessAfter,
+  plainReminderText,
   prepareScheduledTask,
   reminderKey,
   type ScheduledTaskRow,
@@ -255,9 +256,12 @@ function createTask(args: Record<string, unknown>, ctx: CallerContext) {
     recurrence,
     processAfter: str(args.process_after),
     script,
-    // The shared bot number never takes the override: steady automated
-    // traffic was one of the things that got its number banned.
-    dangerouslyOverrideRecurrenceLimit: !tenantLocked() && bool(args.dangerously_override_recurrence_limit),
+    // Shared bot number: no override for tasks that wake the agent; plain
+    // reminders (posted as written, no AI cost) skip the per-task limit and
+    // are held to the per-chat daily cap instead (enforceDailyChatLimit).
+    dangerouslyOverrideRecurrenceLimit: tenantLocked()
+      ? Boolean(message) || plainReminderText(prompt, script) !== null
+      : bool(args.dangerously_override_recurrence_limit),
   });
   const originSessionId = ctx.caller === 'agent' ? ctx.sessionId : null;
   const originDestination = originDestinationOf(group, originSessionId);
@@ -277,7 +281,7 @@ function createTask(args: Record<string, unknown>, ctx: CallerContext) {
 }
 
 /** Shared bot number: reminder messages a chat may get on one day (repeating ones counted per fire). */
-export const DAILY_REMINDERS_PER_CHAT = 4;
+export const DAILY_REMINDERS_PER_CHAT = 10;
 
 /** Calendar day (install time zone) of a timestamp, as YYYY-MM-DD. */
 function dayOf(ms: number): string {

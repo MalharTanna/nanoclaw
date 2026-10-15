@@ -439,7 +439,7 @@ describe('tasks CLI resource', () => {
       delete process.env.NANOCLAW_SHARED_NUMBER;
     });
 
-    it('caps a chat at 4 reminder messages a day on the shared number, counting repeating fires, with no override', async () => {
+    it('caps a chat at 10 reminder messages a day on the shared number, counting every fire of repeating ones', async () => {
       process.env.NANOCLAW_SHARED_NUMBER = 'true';
       const a = chat('mg-cap', 'chat-cap');
       const b = chat('mg-cap2', 'chat-cap2');
@@ -449,22 +449,29 @@ describe('tasks CLI resource', () => {
           ctx,
         );
 
-      // 3 repeating fires on 1 Mar 2999 (10:00, 12:00, 14:00 IST), then one-offs.
-      expect((await add(a, 'water', { recurrence: '0 10,12,14 * * *', process_after: '2999-03-01 10:00' })).ok).toBe(
-        true,
+      // Hourly water 10 AM-6 PM on 1 Mar 2999: 9 messages. A plain reminder may repeat more than 4 times a day.
+      expect((await add(a, 'water', { recurrence: '0 10-18 * * *', process_after: '2999-03-01 10:00' })).ok).toBe(true);
+      expect((await add(a, 'quote', { process_after: '2999-03-01 11:30' })).ok).toBe(true); // 10th
+      const eleventh = await add(a, 'call', { process_after: '2999-03-01 17:30' });
+      expect(eleventh.ok).toBe(false);
+      expect(JSON.stringify(eleventh)).toContain('at most 10 a day');
+      // Another chat is fine.
+      expect((await add(b, 'call', { process_after: '2999-03-01 17:30' })).ok).toBe(true);
+      // A repeating task that wakes the AI keeps the 4-a-day limit, with no override.
+      const agentTask = await dispatch(
+        {
+          id: 'c-ai',
+          command: 'tasks-create',
+          args: {
+            name: 'brief',
+            prompt: 'Summarise the court board',
+            recurrence: '0 * * * *',
+            dangerously_override_recurrence_limit: true,
+          },
+        },
+        b,
       );
-      expect((await add(a, 'quote', { process_after: '2999-03-01 16:00' })).ok).toBe(true);
-      const fifth = await add(a, 'call', { process_after: '2999-03-01 17:00' });
-      expect(fifth.ok).toBe(false);
-      expect(JSON.stringify(fifth)).toContain('at most 4 a day');
-      // Another day, or another chat, is fine.
-      // 3 Mar: the repeating one fires 3 times, so one more is the 4th (fine), a 5th is not.
-      expect((await add(a, 'call', { process_after: '2999-03-03 17:00' })).ok).toBe(true);
-      expect((await add(a, 'call2', { process_after: '2999-03-03 18:00' })).ok).toBe(false);
-      expect((await add(b, 'call', { process_after: '2999-03-01 17:00' })).ok).toBe(true);
-      // The recurrence override is ignored on the shared number.
-      const hourly = await add(b, 'hourly', { recurrence: '0 * * * *', dangerously_override_recurrence_limit: true });
-      expect(hourly.ok).toBe(false);
+      expect(agentTask.ok).toBe(false);
     });
 
     it('a chat sees and changes only its own tasks; cancel --all stays in the chat', async () => {
