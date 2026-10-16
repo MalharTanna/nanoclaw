@@ -28,6 +28,19 @@ describe('parseWebLine', () => {
     });
     expect(parseWebLine(JSON.stringify({ ...good, sender: undefined }))!.sender).toBe('Website visitor');
   });
+  it('carries files a person sent (official WhatsApp), and drops malformed ones', () => {
+    const file = {
+      type: 'document',
+      name: 'Agreement.pdf',
+      mimeType: 'application/pdf',
+      data: Buffer.from('%PDF-1.4').toString('base64'),
+    };
+    expect(parseWebLine(JSON.stringify({ ...good, attachments: [file] }))!.attachments).toEqual([{ ...file, size: 8 }]);
+    expect(parseWebLine(JSON.stringify({ ...good, attachments: [{ ...file, type: 'exe' }] }))).toBeNull();
+    expect(parseWebLine(JSON.stringify({ ...good, attachments: [{ ...file, data: '' }] }))).toBeNull();
+    expect(parseWebLine(JSON.stringify({ ...good, attachments: Array(6).fill(file) }))).toBeNull();
+  });
+
   it('drops anything malformed', () => {
     for (const bad of [
       'not json',

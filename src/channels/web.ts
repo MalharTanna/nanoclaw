@@ -45,12 +45,45 @@ export function webSocketPath(dataDir = DATA_DIR): string {
   return path.join(dataDir, 'web.sock');
 }
 
+export interface WebAttachment {
+  type: string;
+  name: string;
+  mimeType: string;
+  data: string;
+  size: number;
+}
+
 export interface WebInbound {
   platformId: string;
   threadId: string;
   id: string;
   text: string;
   sender: string;
+  attachments?: WebAttachment[];
+}
+
+/** One file is at most 20 MB, five per message (official WhatsApp files relayed by the node-agent). */
+const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+const ATTACHMENT_TYPES = new Set(['image', 'document', 'audio', 'video']);
+/** A line can carry base64 files; guard against a runaway line well above that. */
+const MAX_LINE_BYTES = 6 * 28 * 1024 * 1024;
+
+function parseAttachments(raw: unknown): WebAttachment[] | null | undefined {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw) || raw.length > 5) return null;
+  const out: WebAttachment[] = [];
+  for (const a of raw as Record<string, unknown>[]) {
+    if (!a || typeof a !== 'object') return null;
+    const { type, name, mimeType, data } = a;
+    if (typeof type !== 'string' || !ATTACHMENT_TYPES.has(type)) return null;
+    if (typeof name !== 'string' || !name.trim() || name.length > 200) return null;
+    if (typeof mimeType !== 'string' || mimeType.length > 120) return null;
+    if (typeof data !== 'string' || !data) return null;
+    const size = Buffer.byteLength(data, 'base64');
+    if (size > MAX_ATTACHMENT_BYTES) return null;
+    out.push({ type, name: name.trim(), mimeType, data, size });
+  }
+  return out;
 }
 
 /** Validate one client line; null for anything malformed (dropped, never routed). */
@@ -68,7 +101,9 @@ export function parseWebLine(line: string): WebInbound | null {
   if (typeof id !== 'string' || !MESSAGE_ID.test(id)) return null;
   if (typeof text !== 'string' || text.trim() === '' || text.length > MAX_TEXT) return null;
   const sender = typeof p.sender === 'string' && p.sender.trim() ? p.sender.trim().slice(0, 60) : 'Website visitor';
-  return { platformId, threadId, id, text, sender };
+  const attachments = parseAttachments(p.attachments);
+  if (attachments === null) return null;
+  return { platformId, threadId, id, text, sender, ...(attachments?.length ? { attachments } : {}) };
 }
 
 function extractText(message: OutboundMessage): string | null {
@@ -159,7 +194,7 @@ export function createWebAdapter(dataDir = DATA_DIR): ChannelAdapter {
     let buffer = '';
     socket.on('data', (chunk) => {
       buffer += chunk.toString('utf8');
-      if (buffer.length > 64_000 && buffer.indexOf('\n') < 0) buffer = ''; // runaway line
+      if (buffer.length > MAX_LINE_BYTES && buffer.indexOf('\n') < 0) buffer = ''; // runaway line
       let idx: number;
       while ((idx = buffer.indexOf('\n')) >= 0) {
         const line = buffer.slice(0, idx).trim();
@@ -176,7 +211,12 @@ export function createWebAdapter(dataDir = DATA_DIR): ChannelAdapter {
             kind: 'chat',
             timestamp: new Date().toISOString(),
             isGroup: true,
-            content: { text: m.text, sender: m.sender, senderId: `web:${m.threadId}` },
+            content: {
+              text: m.text,
+              sender: m.sender,
+              senderId: `web:${m.threadId}`,
+              ...(m.attachments ? { attachments: m.attachments } : {}),
+            },
           }),
         ).catch((err) => log.error('Web channel: onInbound threw', { err }));
       }
