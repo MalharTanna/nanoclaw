@@ -75,7 +75,7 @@ describe('adapterPrefixesReplies', () => {
 
   it('is consulted by delivery before the group prefix', () => {
     const src = fs.readFileSync(path.join(process.cwd(), 'src', 'delivery.ts'), 'utf-8');
-    expect(src).toContain('!adapterPrefixesReplies(msg.channel_type)');
+    expect(src).toContain('!adapterPrefixesReplies(to.channel_type)');
   });
 });
 

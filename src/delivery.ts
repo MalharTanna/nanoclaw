@@ -34,6 +34,7 @@ import { getContainerConfig } from './db/container-configs.js';
 import { log } from './log.js';
 import { tenantLocked } from './tenant-lock.js';
 import { idTag } from './log-redact.js';
+import { crossRoute } from './wa-mode.js';
 import {
   adapterPrefixesReplies,
   plainDashesEnabled,
@@ -457,6 +458,20 @@ async function deliverMessage(
     return;
   }
 
+  // Miroflow WhatsApp switch: a chat set up on the other channel (Business
+  // API or linked device) is reached on the one in use now. Checked above
+  // against the original address, so no messaging group is needed here.
+  const routed = crossRoute(
+    { channel_type: msg.channel_type, platform_id: msg.platform_id, thread_id: msg.thread_id },
+    session.agent_group_id,
+  );
+  if (routed === 'drop') {
+    log.warn('Group message not sent: groups need the linked-device WhatsApp', { id: msg.id, chat: idTag(msg.platform_id) });
+    return;
+  }
+  const to = routed ?? { channel_type: msg.channel_type, platform_id: msg.platform_id, thread_id: msg.thread_id };
+  if (routed) deliverInstance = undefined;
+
   // Read file attachments from outbox if the content declares files.
   // File I/O lives in session-manager.ts (symmetric with inbound
   // extractAttachmentFiles) — delivery just hands buffers to the adapter.
@@ -470,14 +485,14 @@ async function deliverMessage(
   let outContent = plainDashesEnabled() ? withPlainDashes(msg.kind, msg.content) : msg.content;
   // The web widget shows the assistant's name itself: no prefix there.
   // Nor where the adapter already prefixes every reply (a person's own number).
-  if (replyPrefixMode() === 'group' && msg.channel_type !== 'web' && !adapterPrefixesReplies(msg.channel_type)) {
+  if (replyPrefixMode() === 'group' && to.channel_type !== 'web' && !adapterPrefixesReplies(to.channel_type)) {
     outContent = withGroupPrefix(msg.kind, outContent, getContainerConfig(session.agent_group_id)?.assistant_name);
   }
 
   const platformMsgId = await deliveryAdapter.deliver(
-    msg.channel_type,
-    msg.platform_id,
-    msg.thread_id,
+    to.channel_type,
+    to.platform_id,
+    to.thread_id,
     msg.kind,
     outContent,
     files,
@@ -485,8 +500,8 @@ async function deliverMessage(
   );
   log.info('Message delivered', {
     id: msg.id,
-    channelType: msg.channel_type,
-    chat: idTag(msg.platform_id),
+    channelType: to.channel_type,
+    chat: idTag(to.platform_id),
     platformMsgId,
     fileCount: files?.length,
   });

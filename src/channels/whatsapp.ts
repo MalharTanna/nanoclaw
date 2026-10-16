@@ -45,6 +45,7 @@ import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
 import { idTag } from '../log-redact.js';
 import { registerChannelAdapter } from './channel-registry.js';
+import { waChannel } from '../wa-mode.js';
 import { normalizeOptions, type NormalizedOption } from './ask-question.js';
 import type { ChannelAdapter, ChannelSetup, ConversationInfo, InboundMessage, OutboundMessage } from './adapter.js';
 
@@ -536,6 +537,9 @@ registerChannelAdapter('whatsapp', {
     const env = readEnvFile(['WHATSAPP_PHONE_NUMBER', 'WHATSAPP_ENABLED']);
     const phoneNumber = env.WHATSAPP_PHONE_NUMBER;
     const authDir = AUTH_DIR;
+
+    // Miroflow on the official Business API: the linked device stays off.
+    if (waChannel() === 'api') return null;
 
     // Skip if no existing auth, no phone number for pairing, and not explicitly enabled (QR mode)
     const hasAuth = fs.existsSync(path.join(authDir, 'creds.json'));
