@@ -482,3 +482,20 @@ describe('shared install: chat replies stay in their chat', () => {
     expect(targets).toEqual(['telegram:456']);
   });
 });
+
+describe('webThreadFor - reminders and watches in a web/WhatsApp conversation', () => {
+  it('a chat session uses its own conversation; a task session the conversation that created the task', async () => {
+    const { createSession } = await import('./db/sessions.js');
+    const { webThreadFor } = await import('./delivery.js');
+    seedAgentAndChannel();
+    const base = { agent_group_id: 'ag-1', agent_provider: null, status: 'active' as const, container_status: 'stopped' as const, last_active: null, created_at: now() };
+    createSession({ ...base, id: 'chat-1', messaging_group_id: 'mg-1', thread_id: 'waphone_919876543210' });
+    createSession({ ...base, id: 'task-1', messaging_group_id: null, thread_id: 'system:tasks:dnr-watch' });
+    const mem = new Database(':memory:');
+    mem.exec("CREATE TABLE messages_in (id TEXT, seq INTEGER, kind TEXT, content TEXT)");
+    expect(webThreadFor({ id: 'chat-1', thread_id: 'waphone_919876543210' } as never, mem)).toBe('waphone_919876543210');
+    expect(webThreadFor({ id: 'task-1', thread_id: 'system:tasks:dnr-watch' } as never, mem)).toBeNull();
+    mem.prepare("INSERT INTO messages_in VALUES ('t1', 2, 'task', ?)").run(JSON.stringify({ prompt: 'x', originSessionId: 'chat-1' }));
+    expect(webThreadFor({ id: 'task-1', thread_id: 'system:tasks:dnr-watch' } as never, mem)).toBe('waphone_919876543210');
+  });
+});

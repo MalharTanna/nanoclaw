@@ -13,6 +13,7 @@ import {
   getRunningSessions,
   getActiveSessions,
   createPendingQuestion,
+  getSession,
   isTaskThread,
   TASKS_SYSTEM_THREAD_ID,
 } from './db/sessions.js';
@@ -264,6 +265,29 @@ async function drainSession(session: Session): Promise<void> {
   }
 }
 
+/**
+ * The web conversation a session belongs to: its own thread for a chat
+ * session; for a task session, the thread of the session that created the
+ * task (taken from the task's content).
+ */
+export function webThreadFor(session: Session, inDb: Database.Database): string | null {
+  if (session.thread_id && !isTaskThread(session.thread_id)) return session.thread_id;
+  try {
+    const rows = inDb
+      .prepare("SELECT content FROM messages_in WHERE kind = 'task' ORDER BY seq DESC LIMIT 20")
+      .all() as { content: string }[];
+    for (const r of rows) {
+      const origin = (JSON.parse(r.content) as { originSessionId?: unknown }).originSessionId;
+      if (typeof origin !== 'string') continue;
+      const s = getSession(origin);
+      if (s?.thread_id && !isTaskThread(s.thread_id)) return s.thread_id;
+    }
+  } catch {
+    /* no task rows */
+  }
+  return null;
+}
+
 async function deliverMessage(
   msg: {
     id: string;
@@ -335,6 +359,16 @@ async function deliverMessage(
       });
       msg = { ...msg, channel_type: own.channel_type, platform_id: own.platform_id, thread_id: null };
     }
+  }
+
+  // Web-channel messages need a conversation (thread): each one is a person
+  // (official-WhatsApp chats) or a website visitor. A send without one, from
+  // a reminder or watch, goes back to the conversation that set it up;
+  // otherwise the web channel drops it.
+  if (msg.channel_type === 'web' && !msg.thread_id) {
+    const thread = webThreadFor(session, inDb);
+    if (thread) msg = { ...msg, thread_id: thread };
+    else log.warn('Web message has no conversation - it cannot be delivered', { id: msg.id, sessionId: session.id });
   }
 
   // Permission check: the source agent must be allowed to deliver to this
