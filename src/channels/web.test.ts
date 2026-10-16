@@ -6,7 +6,14 @@ import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ChannelAdapter, ChannelSetup } from './adapter.js';
-import { createWebAdapter, parseWebLine, webChannelEnabled, webSocketPath } from './web.js';
+import {
+  MAX_OUT_FILE_BYTES,
+  createWebAdapter,
+  outboundFiles,
+  parseWebLine,
+  webChannelEnabled,
+  webSocketPath,
+} from './web.js';
 
 const good = {
   type: 'message',
@@ -141,5 +148,21 @@ describe('web adapter', () => {
       if (orig === undefined) delete process.env.NANOCLAW_WEB_CHANNEL;
       else process.env.NANOCLAW_WEB_CHANNEL = orig;
     }
+  });
+});
+
+describe('outboundFiles - files the assistant sends', () => {
+  it('base64s up to five files, keeps only the file name, and leaves out empty or oversized ones', () => {
+    const files = [
+      { filename: '/workspace/outbox/x/quote.pdf', data: Buffer.from('pdf') },
+      { filename: 'empty.txt', data: Buffer.alloc(0) },
+      { filename: 'huge.bin', data: Buffer.alloc(MAX_OUT_FILE_BYTES + 1) },
+      ...Array.from({ length: 6 }, (_, i) => ({ filename: `p${i}.png`, data: Buffer.from('i') })),
+    ];
+    const out = outboundFiles(files);
+    expect(out).toHaveLength(5);
+    expect(out[0]).toEqual({ name: 'quote.pdf', data: Buffer.from('pdf').toString('base64') });
+    expect(out.map((f) => f.name)).not.toContain('huge.bin');
+    expect(outboundFiles(undefined)).toEqual([]);
   });
 });

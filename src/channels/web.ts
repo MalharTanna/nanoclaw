@@ -25,7 +25,7 @@ import path from 'path';
 import { DATA_DIR } from '../config.js';
 import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
-import type { ChannelAdapter, ChannelDefaults, ChannelSetup, OutboundMessage } from './adapter.js';
+import type { ChannelAdapter, ChannelDefaults, ChannelSetup, OutboundFile, OutboundMessage } from './adapter.js';
 import { registerChannelAdapter } from './channel-registry.js';
 
 export const WEB_PLATFORM_ID = /^web:[a-z0-9]{6,40}$/;
@@ -106,6 +106,23 @@ export function parseWebLine(line: string): WebInbound | null {
   return { platformId, threadId, id, text, sender, ...(attachments?.length ? { attachments } : {}) };
 }
 
+/** Files the assistant sends (official WhatsApp): at most 5, 16 MB each; bigger ones are left out. */
+export const MAX_OUT_FILES = 5;
+export const MAX_OUT_FILE_BYTES = 16 * 1024 * 1024;
+
+export function outboundFiles(files: OutboundFile[] | undefined): { name: string; data: string }[] {
+  const out: { name: string; data: string }[] = [];
+  for (const f of files ?? []) {
+    if (out.length >= MAX_OUT_FILES) break;
+    if (f.data.length === 0 || f.data.length > MAX_OUT_FILE_BYTES) {
+      log.warn('Web reply: file left out (empty or over 16 MB)', { bytes: f.data.length });
+      continue;
+    }
+    out.push({ name: path.basename(f.filename).slice(0, 120) || 'file', data: f.data.toString('base64') });
+  }
+  return out;
+}
+
 function extractText(message: OutboundMessage): string | null {
   const content = message.content as Record<string, unknown> | string | undefined;
   if (typeof content === 'string') return content;
@@ -178,9 +195,10 @@ export function createWebAdapter(dataDir = DATA_DIR): ChannelAdapter {
 
     async deliver(platformId, threadId, message: OutboundMessage): Promise<string | undefined> {
       if (!WEB_PLATFORM_ID.test(platformId) || !threadId) return undefined;
-      const text = extractText(message);
-      if (text === null || text.trim() === '') return undefined;
-      send(JSON.stringify({ type: 'reply', platformId, threadId, text }));
+      const text = extractText(message) ?? '';
+      const files = outboundFiles(message.files);
+      if (text.trim() === '' && files.length === 0) return undefined;
+      send(JSON.stringify({ type: 'reply', platformId, threadId, text, ...(files.length ? { files } : {}) }));
       return undefined;
     },
   };
