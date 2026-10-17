@@ -27,6 +27,8 @@ import { getDeliveryAdapter } from './delivery.js';
 import { log } from './log.js';
 import { idTag } from './log-redact.js';
 import type { InboundEvent } from './channels/adapter.js';
+import { bookJoinSlot, joinTimeText } from './wa-limits.js';
+import { waChannel } from './wa-mode.js';
 
 export const JOIN_RE = /^\s*join\s+([A-HJ-NP-Z2-9]{6})\s*$/i;
 const INVALID_REPLY_COOLDOWN_MS = 10 * 60_000;
@@ -161,6 +163,7 @@ export async function maybeHandleJoinCode(
   text: string | undefined,
   dataDir = DATA_DIR,
   now: number = Date.now(),
+  storeDir?: string,
 ): Promise<boolean> {
   const isGroup = event.message.isGroup === true;
   const code = matchJoinCode(text);
@@ -219,10 +222,77 @@ export async function maybeHandleJoinCode(
     platformId: event.platformId,
     instance: event.instance ?? event.channelType,
   };
+  // New groups are joined a few a day (src/wa-limits.ts): later ones wait for their slot.
+  if (isGroup && waChannel() === 'linked') {
+    const slot = bookJoinSlot(now, storeDir);
+    if (slot === null) {
+      await reply(event, "Thanks! I'm joining a lot of new groups right now. Please send the same join code again tomorrow.");
+      log.info('Join code deferred: join queue full', { chat: idTag(event.platformId) });
+      return true;
+    }
+    if (slot > now + 60_000) {
+      const later: QueuedJoin = { notBefore: slot, request: { ...request, sentAt: request.sentAt ?? request.ts }, assistantName: armed.assistantName, businessName: armed.businessName };
+      fs.appendFileSync(queuedJoinsPath(dataDir), JSON.stringify(later) + '\n', { mode: 0o600 });
+      log.info('Join code accepted, joining later', { chat: idTag(event.platformId), tenantId: armed.tenantId, inMin: Math.round((slot - now) / 60_000) });
+      await reply(
+        event,
+        `✅ Code accepted. To keep this WhatsApp number safe, ${armed.assistantName} joins only a few new groups a day. I'll start in this group at ${joinTimeText(slot, now)}.`,
+      );
+      return true;
+    }
+  }
   fs.appendFileSync(linkRequestsPath(dataDir), JSON.stringify(request) + '\n', { mode: 0o600 });
   log.info('Join code accepted', { chat: idTag(event.platformId), tenantId: armed.tenantId });
   if (isGroup) await reply(event, groupNotice(armed.assistantName, armed.businessName));
   return true;
+}
+
+export interface QueuedJoin {
+  notBefore: number;
+  request: LinkRequest;
+  assistantName: string;
+  businessName?: string;
+}
+
+export function queuedJoinsPath(dataDir = DATA_DIR): string {
+  return path.join(dataDir, 'link-requests-later.jsonl');
+}
+
+/**
+ * Hand queued group joins whose time has come to the node-agent (the same
+ * link request as an immediate join, judged by when the code was sent) and
+ * post the group notice. Called every minute while WhatsApp is connected.
+ */
+export async function flushQueuedJoins(dataDir = DATA_DIR, now: number = Date.now()): Promise<number> {
+  const file = queuedJoinsPath(dataDir);
+  let lines: string[];
+  try {
+    lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
+  } catch {
+    return 0;
+  }
+  const due: QueuedJoin[] = [];
+  const keep: string[] = [];
+  for (const line of lines) {
+    try {
+      const q = JSON.parse(line) as QueuedJoin;
+      if (q.notBefore <= now) due.push(q);
+      else keep.push(line);
+    } catch {
+      /* drop a damaged line */
+    }
+  }
+  if (due.length === 0) return 0;
+  fs.writeFileSync(file, keep.length ? keep.join('\n') + '\n' : '', { mode: 0o600 });
+  for (const q of due) {
+    fs.appendFileSync(linkRequestsPath(dataDir), JSON.stringify({ ...q.request, ts: new Date(now).toISOString() }) + '\n', { mode: 0o600 });
+    log.info('Queued join released', { chat: idTag(q.request.platformId), tenantId: q.request.tenantId });
+    await reply(
+      { channelType: q.request.channelType, platformId: q.request.platformId, instance: q.request.instance } as InboundEvent,
+      groupNotice(q.assistantName, q.businessName),
+    );
+  }
+  return due.length;
 }
 
 /**

@@ -46,6 +46,8 @@ import { log } from '../log.js';
 import { idTag } from '../log-redact.js';
 import { registerChannelAdapter } from './channel-registry.js';
 import { waChannel } from '../wa-mode.js';
+import { DAILY_LIMIT_NOTICE, DailySendBudget, markLinked } from '../wa-limits.js';
+import { flushQueuedJoins } from '../join-codes.js';
 import { normalizeOptions, type NormalizedOption } from './ask-question.js';
 import type { ChannelAdapter, ChannelSetup, ConversationInfo, InboundMessage, OutboundMessage } from './adapter.js';
 
@@ -607,11 +609,27 @@ registerChannelAdapter('whatsapp', {
         /* best effort */
       }
     };
-    /** Every send goes through here: cold-chat guard, then the pacer. */
+    const budget = new DailySendBudget();
+    let joinTimer: NodeJS.Timeout | null = null;
+    /** Every send goes through here: cold-chat guard, the number's daily limit, then the pacer. */
     async function safeSend(jid: string, content: Parameters<WASocket['sendMessage']>[1]) {
       if (sharedNumber && !mayMessageChat(jid, knownPersonalChats)) {
         log.warn('Not sending: this person has never messaged the bot number', { jid: idTag(jid) });
         return undefined;
+      }
+      if (sharedNumber) {
+        const verdict = budget.take(jid);
+        if (verdict === 'hold') {
+          log.warn('Not sending: daily message limit for this number reached', {
+            jid: idTag(jid),
+            limit: budget.ceiling(),
+          });
+          return undefined;
+        }
+        if (verdict === 'notice') {
+          log.warn('Daily message limit reached: telling this chat once', { jid: idTag(jid), limit: budget.ceiling() });
+          content = { text: DAILY_LIMIT_NOTICE };
+        }
       }
       await pacer.next();
       return sock.sendMessage(jid, content);
@@ -1292,6 +1310,18 @@ registerChannelAdapter('whatsapp', {
           log.info('Connected to WhatsApp');
 
           noteOnline(true);
+          if (sharedNumber) {
+            // The number's age sets its daily limits (src/wa-limits.ts).
+            const own = sock.user?.id?.split(':')[0]?.split('@')[0];
+            if (own) markLinked(own);
+            if (!joinTimer) {
+              joinTimer = setInterval(
+                () => void flushQueuedJoins().catch((err) => log.warn('Queued joins failed', { err })),
+                60_000,
+              );
+              joinTimer.unref?.();
+            }
+          }
 
           // Clean up pairing code file after successful connection
           try {

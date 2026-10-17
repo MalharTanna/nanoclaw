@@ -16,6 +16,8 @@ import {
   matchJoinCode,
   maybeHandleJoinCode,
   maybeReplyToUnlinkedChat,
+  flushQueuedJoins,
+  queuedJoinsPath,
   UNLINKED_GROUP_REPLY,
   unlinkedRepliesPath,
 } from './join-codes.js';
@@ -253,5 +255,40 @@ describe('maybeReplyToUnlinkedChat', () => {
     typedOnBotPhone.message.content = JSON.stringify({ text: 'hello', fromMe: true });
     expect(await maybeReplyToUnlinkedChat(typedOnBotPhone, true, dir, NOW)).toBe(false);
     expect(deliver).not.toHaveBeenCalled();
+  });
+});
+
+describe('group join cooling on linked device', () => {
+  let store: string;
+  beforeEach(() => {
+    store = fs.mkdtempSync(path.join(os.tmpdir(), 'join-store-'));
+    process.env.WHATSAPP_CHANNEL = 'linked';
+  });
+  afterEach(() => {
+    delete process.env.WHATSAPP_CHANNEL;
+    fs.rmSync(store, { recursive: true, force: true });
+  });
+
+  it('joins the first 3 groups today, queues the 4th with its time, and releases it when due', async () => {
+    const now = Date.parse('2026-10-20T04:30:00.000Z'); // 10:00 AM IST
+    arm({ AB23CD: { expiresAt: new Date(now + 6 * 3_600_000).toISOString() } });
+    for (let i = 0; i < 3; i++) {
+      const at = now + i * 31 * 60_000;
+      expect(await maybeHandleJoinCode({ ...event(true, `12036341382349925${i}@g.us`), message: { ...event().message, timestamp: new Date(at).toISOString() } } as InboundEvent, 'join AB23CD', dir, at, store)).toBe(true);
+    }
+    expect(requests()).toHaveLength(3);
+    deliver.mockClear();
+    const at = now + 95 * 60_000;
+    expect(await maybeHandleJoinCode({ ...event(true, '120363413823499259@g.us'), message: { ...event().message, timestamp: new Date(at).toISOString() } } as InboundEvent, 'join AB23CD', dir, at, store)).toBe(true);
+    expect(requests()).toHaveLength(3); // not yet
+    expect(JSON.parse(deliver.mock.calls[0]![4]).text).toContain("I'll start in this group at 8:00 AM tomorrow");
+
+    expect(await flushQueuedJoins(dir, at + 60_000)).toBe(0);
+    deliver.mockClear();
+    expect(await flushQueuedJoins(dir, Date.parse('2026-10-21T02:31:00.000Z'))).toBe(1);
+    const released = requests().at(-1);
+    expect(released).toMatchObject({ platformId: '120363413823499259@g.us', code: 'AB23CD', sentAt: new Date(at).toISOString() });
+    expect(JSON.parse(deliver.mock.calls[0]![4]).text).toContain('connected to **Miro**');
+    expect(fs.readFileSync(queuedJoinsPath(dir), 'utf8')).toBe('');
   });
 });
