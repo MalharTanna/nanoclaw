@@ -10,7 +10,8 @@
  *   nothing more goes out that day, except one short notice per chat.
  * - **Group joins cooled**: at most 3 new groups a day for the first two
  *   weeks, then 5, at least 30 minutes apart, between 8 AM and 9 PM India
- *   time. A join code beyond that is queued and the group is told when.
+ *   time, and at most 2 a day for any one business. A join code beyond that
+ *   is queued and the group is told when.
  *
  * Days are India-time calendar days. State lives in store/ (kept across
  * restarts and relinks of the same number; a different number starts again).
@@ -160,16 +161,26 @@ export function joinLedgerFile(dir = storeDir()): string {
   return path.join(dir, 'wa-group-joins.json');
 }
 
+/** New groups one business may add a day, inside the number's own limit (so one can't use everyone's). */
+export const GROUP_JOINS_PER_BUSINESS_DAY = 2;
+
+/** A join slot given out: when, and for which business. */
+export interface JoinSlot {
+  t: number;
+  tenant?: string;
+}
+
 /**
- * The earliest time a new group may be joined: the 30-minute gap, the daily
- * number, and 8 AM - 9 PM India time. `taken` is the times already given out.
+ * The earliest time a new group may be joined: the 30-minute gap, the
+ * number's daily limit, the business's own 2 a day, and 8 AM - 9 PM India
+ * time. `taken` is the slots already given out.
  */
-export function nextJoinSlot(taken: number[], now: number, since: number): number {
+export function nextJoinSlot(taken: JoinSlot[], now: number, since: number, tenant?: string): number {
   let t = now;
   for (let guard = 0; guard < 400; guard++) {
-    const clash = taken.filter((x) => Math.abs(x - t) < JOIN_GAP_MS);
+    const clash = taken.filter((x) => Math.abs(x.t - t) < JOIN_GAP_MS);
     if (clash.length) {
-      t = Math.max(...clash) + JOIN_GAP_MS;
+      t = Math.max(...clash.map((x) => x.t)) + JOIN_GAP_MS;
       continue;
     }
     if (istHour(t) < JOIN_OPEN_HOUR) {
@@ -180,8 +191,10 @@ export function nextJoinSlot(taken: number[], now: number, since: number): numbe
       t = istAt(t + DAY_MS, JOIN_OPEN_HOUR);
       continue;
     }
-    const day = istDay(t);
-    if (taken.filter((x) => istDay(x) === day).length >= groupJoinsPerDay(since, t)) {
+    const day = taken.filter((x) => istDay(x.t) === istDay(t));
+    const full = day.length >= groupJoinsPerDay(since, t);
+    const ownFull = tenant !== undefined && day.filter((x) => x.tenant === tenant).length >= GROUP_JOINS_PER_BUSINESS_DAY;
+    if (full || ownFull) {
       t = istAt(t + DAY_MS, JOIN_OPEN_HOUR);
       continue;
     }
@@ -194,16 +207,20 @@ export function nextJoinSlot(taken: number[], now: number, since: number): numbe
 export const MAX_JOIN_WAIT_MS = 40 * 60 * 60_000;
 
 /**
- * Book the next join slot for a new group and return it (`now` or later), or
- * null when the queue is already too long (the group is asked to try tomorrow).
+ * Book the next join slot for a business's new group and return it (`now` or
+ * later), or null when the wait would be too long (the group is asked to try
+ * tomorrow).
  */
-export function bookJoinSlot(now: number = Date.now(), dir = storeDir()): number | null {
+export function bookJoinSlot(now: number = Date.now(), dir = storeDir(), tenant?: string): number | null {
   const file = joinLedgerFile(dir);
-  // Keep three days of history: enough for the gap and the daily count.
-  const taken = readJson<number[]>(file, []).filter((x) => typeof x === 'number' && x > now - 3 * DAY_MS);
-  const slot = nextJoinSlot(taken, now, linkedSince(now, dir));
+  // Keep three days of history: enough for the gap and the daily counts.
+  // (Older files held bare times.)
+  const taken = readJson<unknown[]>(file, [])
+    .map((x): JoinSlot | null => (typeof x === 'number' ? { t: x } : x && typeof (x as JoinSlot).t === 'number' ? (x as JoinSlot) : null))
+    .filter((x): x is JoinSlot => x !== null && x.t > now - 3 * DAY_MS);
+  const slot = nextJoinSlot(taken, now, linkedSince(now, dir), tenant);
   if (slot - now > MAX_JOIN_WAIT_MS) return null;
-  writeJson(file, [...taken, slot]);
+  writeJson(file, [...taken, { t: slot, ...(tenant ? { tenant } : {}) }]);
   return slot;
 }
 

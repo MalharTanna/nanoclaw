@@ -224,7 +224,7 @@ export async function maybeHandleJoinCode(
   };
   // New groups are joined a few a day (src/wa-limits.ts): later ones wait for their slot.
   if (isGroup && waChannel() === 'linked') {
-    const slot = bookJoinSlot(now, storeDir);
+    const slot = bookJoinSlot(now, storeDir, armed.tenantId);
     if (slot === null) {
       await reply(event, "Thanks! I'm joining a lot of new groups right now. Please send the same join code again tomorrow.");
       log.info('Join code deferred: join queue full', { chat: idTag(event.platformId) });

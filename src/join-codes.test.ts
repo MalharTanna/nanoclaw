@@ -269,18 +269,18 @@ describe('group join cooling on linked device', () => {
     fs.rmSync(store, { recursive: true, force: true });
   });
 
-  it('joins the first 3 groups today, queues the 4th with its time, and releases it when due', async () => {
+  it("joins a business's first 2 groups today, queues its 3rd with the time, and releases it when due", async () => {
     const now = Date.parse('2026-10-20T04:30:00.000Z'); // 10:00 AM IST
     arm({ AB23CD: { expiresAt: new Date(now + 6 * 3_600_000).toISOString() } });
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 2; i++) {
       const at = now + i * 31 * 60_000;
       expect(await maybeHandleJoinCode({ ...event(true, `12036341382349925${i}@g.us`), message: { ...event().message, timestamp: new Date(at).toISOString() } } as InboundEvent, 'join AB23CD', dir, at, store)).toBe(true);
     }
-    expect(requests()).toHaveLength(3);
+    expect(requests()).toHaveLength(2);
     deliver.mockClear();
     const at = now + 95 * 60_000;
     expect(await maybeHandleJoinCode({ ...event(true, '120363413823499259@g.us'), message: { ...event().message, timestamp: new Date(at).toISOString() } } as InboundEvent, 'join AB23CD', dir, at, store)).toBe(true);
-    expect(requests()).toHaveLength(3); // not yet
+    expect(requests()).toHaveLength(2); // not yet
     expect(JSON.parse(deliver.mock.calls[0]![4]).text).toContain("I'll start in this group at 8:00 AM tomorrow");
 
     expect(await flushQueuedJoins(dir, at + 60_000)).toBe(0);

@@ -72,10 +72,10 @@ describe('group join cooling', () => {
 
   it('30 minutes apart, 8 AM - 9 PM India time, and the day after once full', () => {
     const since = NOW;
-    const taken: number[] = [];
-    const book = (t: number) => {
-      const s = nextJoinSlot(taken, t, since);
-      taken.push(s);
+    const taken: { t: number; tenant?: string }[] = [];
+    const book = (t: number, tenant?: string) => {
+      const s = nextJoinSlot(taken, t, since, tenant);
+      taken.push({ t: s, tenant });
       return s;
     };
     expect(book(NOW)).toBe(NOW);
@@ -87,6 +87,19 @@ describe('group join cooling', () => {
     // At night it waits for the morning.
     const night = Date.parse('2026-10-22T17:00:00.000Z'); // 10:30 PM IST
     expect(new Date(nextJoinSlot([], night, since - 30 * DAY)).toISOString()).toBe('2026-10-23T02:30:00.000Z');
+  });
+
+  it('one business gets at most 2 a day, so the third slot of the day stays for others', () => {
+    const taken: { t: number; tenant?: string }[] = [];
+    const book = (tenant: string) => {
+      const s = nextJoinSlot(taken, NOW, NOW, tenant);
+      taken.push({ t: s, tenant });
+      return s;
+    };
+    expect(book('org_a')).toBe(NOW);
+    expect(book('org_a')).toBe(NOW + 30 * 60_000);
+    expect(istDay(book('org_a'))).toBe('2026-10-21'); // its third waits for tomorrow
+    expect(book('org_b')).toBe(NOW + 60 * 60_000); // another business still gets today's last slot
   });
 
   it('books slots on disk and refuses when the wait would pass 40 hours', () => {
