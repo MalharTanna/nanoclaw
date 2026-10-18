@@ -464,6 +464,32 @@ describe('router', () => {
     expect(getMessagingGroupByPlatform('slack', 'C-MENTIONED')).toBeDefined();
   });
 
+  it("on a business's own number, even a mention in a chat nobody turned on is ignored (no record, no approval)", async () => {
+    const { routeInbound } = await import('./router.js');
+    const { getMessagingGroupByPlatform } = await import('./db/messaging-groups.js');
+    const before = process.env.NANOCLAW_OWN_NUMBER;
+    process.env.NANOCLAW_OWN_NUMBER = 'true';
+    try {
+      await routeInbound({
+        channelType: 'whatsapp',
+        platformId: '120363000000000001@g.us',
+        threadId: null,
+        message: {
+          id: 'msg-own-unwired',
+          kind: 'chat',
+          content: JSON.stringify({ sender: 'Friend', text: 'Miro, are you there?' }),
+          timestamp: now(),
+          isMention: true,
+          isGroup: true,
+        },
+      });
+      expect(getMessagingGroupByPlatform('whatsapp', '120363000000000001@g.us')).toBeUndefined();
+    } finally {
+      if (before === undefined) delete process.env.NANOCLAW_OWN_NUMBER;
+      else process.env.NANOCLAW_OWN_NUMBER = before;
+    }
+  });
+
   it('should route multiple messages to the same session', async () => {
     const { routeInbound } = await import('./router.js');
 

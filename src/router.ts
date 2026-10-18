@@ -22,6 +22,7 @@ import { resolveThreadPolicy, resolveUnknownSenderPolicy } from './channels/chan
 import { gateCommand } from './command-gate.js';
 import { getAgentGroup } from './db/agent-groups.js';
 import { recordDroppedMessage } from './db/dropped-messages.js';
+import { isOwnNumber } from './install-mode.js';
 import {
   createMessagingGroup,
   getMessagingGroupAgents,
@@ -211,6 +212,8 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
     // Shared-number installs: "join <code>" in a group we sit in but aren't
     // wired to links it to a tenant (src/join-codes.ts). No-op elsewhere.
     if (await maybeHandleJoinCode(event, safeParseContent(event.message.content).text)) return;
+    // A business's own number: chats it hasn't turned on are none of Miro's business.
+    if (isOwnNumber()) return;
     if (isSharedNumber()) {
       // Shared number: unlinked chats are ignored, except a short reply a day
       // (what this number is; in a group that asks for Miro, how to connect).
@@ -262,6 +265,7 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
   //     escalate to owner for channel-registration approval.
   if (agentCount === 0) {
     if (await maybeHandleJoinCode(event, safeParseContent(event.message.content).text)) return;
+    if (isOwnNumber()) return;
     if (isSharedNumber()) {
       await maybeReplyToUnlinkedChat(
         event,

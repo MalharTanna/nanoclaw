@@ -12,7 +12,7 @@
  * The operator still changes a tenant's setup from the host (ncl over the
  * socket, driven by the Miroflow control plane).
  */
-import { readEnvFile } from './env.js';
+import { installMode } from './install-mode.js';
 
 /** ncl resources a tenant's agent may use from chat. */
 export const TENANT_CHAT_RESOURCES: ReadonlySet<string> = new Set(['tasks', 'court', 'matters']);
@@ -22,7 +22,7 @@ export const TENANT_BLOCKED_COMMANDS: ReadonlySet<string> = new Set(['/cost', '/
 
 export const TENANT_LOCKED_REASON = 'Not available on Miroflow: the assistant setup is managed by Miroflow.';
 
+/** Miroflow installs, on a shared number or on a business's own number (src/install-mode.ts). */
 export function tenantLocked(): boolean {
-  const v = process.env.NANOCLAW_SHARED_NUMBER || readEnvFile(['NANOCLAW_SHARED_NUMBER']).NANOCLAW_SHARED_NUMBER;
-  return v === 'true';
+  return installMode() !== 'personal';
 }

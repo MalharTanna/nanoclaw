@@ -46,6 +46,7 @@ import { log } from '../log.js';
 import { idTag } from '../log-redact.js';
 import { registerChannelAdapter } from './channel-registry.js';
 import { waChannel } from '../wa-mode.js';
+import { isOwnNumber } from '../install-mode.js';
 import { DAILY_LIMIT_NOTICE, DailySendBudget, markLinked } from '../wa-limits.js';
 import { flushQueuedJoins } from '../join-codes.js';
 import { normalizeOptions, type NormalizedOption } from './ask-question.js';
@@ -244,7 +245,8 @@ export class SendPacer {
  * Exported for unit testing.
  */
 /**
- * WHATSAPP_PERSONAL_CHATS=off: answer groups only, and personal chats only
+ * WHATSAPP_PERSONAL_CHATS=off (the default on a business's own number,
+ * NANOCLAW_OWN_NUMBER=true; =on turns them all on): answer groups only, and personal chats only
  * from the numbers in WHATSAPP_PERSONAL_ALLOW (comma-separated digits, e.g.
  * test phones). For running on a number that is also the owner's own
  * WhatsApp, so people writing to them personally never get the assistant.
@@ -252,8 +254,11 @@ export class SendPacer {
 export function personalChatAllowed(
   jid: string,
   env: Record<string, string | undefined> = readEnvFile(['WHATSAPP_PERSONAL_CHATS', 'WHATSAPP_PERSONAL_ALLOW']),
+  ownNumber: boolean = isOwnNumber(),
 ): boolean {
-  if ((process.env.WHATSAPP_PERSONAL_CHATS || env.WHATSAPP_PERSONAL_CHATS) !== 'off') return true;
+  // On a business's own number personal chats are off unless turned on.
+  const setting = process.env.WHATSAPP_PERSONAL_CHATS || env.WHATSAPP_PERSONAL_CHATS;
+  if (setting === 'on' || (setting !== 'off' && !ownNumber)) return true;
   const digits = jid.split('@')[0]!.split(':')[0]!;
   const allow = (process.env.WHATSAPP_PERSONAL_ALLOW || env.WHATSAPP_PERSONAL_ALLOW || '')
     .split(',')
@@ -606,6 +611,8 @@ registerChannelAdapter('whatsapp', {
     // Shared bot number safety: paced sends, and no message to a person who
     // has never messaged this number (kept on disk across restarts).
     const sharedNumber = readEnvFile(['NANOCLAW_SHARED_NUMBER']).NANOCLAW_SHARED_NUMBER === 'true';
+    // Miroflow on a shared number or a business's own number: same sending limits.
+    const safetyLimits = sharedNumber || isOwnNumber();
     const pacer = new SendPacer();
     const knownChatsFile = path.join(process.cwd(), 'store', 'known-personal-chats.json');
     const knownPersonalChats = new Set<string>(
@@ -632,11 +639,11 @@ registerChannelAdapter('whatsapp', {
     let joinTimer: NodeJS.Timeout | null = null;
     /** Every send goes through here: cold-chat guard, the number's daily limit, then the pacer. */
     async function safeSend(jid: string, content: Parameters<WASocket['sendMessage']>[1]) {
-      if (sharedNumber && !mayMessageChat(jid, knownPersonalChats)) {
+      if (safetyLimits && !mayMessageChat(jid, knownPersonalChats)) {
         log.warn('Not sending: this person has never messaged the bot number', { jid: idTag(jid) });
         return undefined;
       }
-      if (sharedNumber) {
+      if (safetyLimits) {
         const verdict = budget.take(jid);
         if (verdict === 'hold') {
           log.warn('Not sending: daily message limit for this number reached', {
@@ -1295,7 +1302,7 @@ registerChannelAdapter('whatsapp', {
 
           log.info('WhatsApp connection closed', { reason, shouldReconnect, shuttingDown });
 
-          if (shouldReconnect && sharedNumber && noteConnectionDrop()) {
+          if (shouldReconnect && safetyLimits && noteConnectionDrop()) {
             log.warn('WhatsApp unstable: pausing automated reminders for 1 hour');
           }
           if (shouldReconnect) {
@@ -1338,10 +1345,12 @@ registerChannelAdapter('whatsapp', {
           log.info('Connected to WhatsApp');
 
           noteOnline(true);
-          if (sharedNumber) {
+          if (safetyLimits) {
             // The number's age sets its daily limits (src/wa-limits.ts).
             const own = sock.user?.id?.split(':')[0]?.split('@')[0];
             if (own) markLinked(own);
+          }
+          if (sharedNumber) {
             if (!joinTimer) {
               joinTimer = setInterval(
                 () => void flushQueuedJoins().catch((err) => log.warn('Queued joins failed', { err })),
