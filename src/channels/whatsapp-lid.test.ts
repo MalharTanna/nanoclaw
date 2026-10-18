@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   lidMentionJids,
   mayMessageChat,
+  personalChatAllowed,
   missedPrefix,
   parseWhatsAppMentions,
   pickMissedMessages,
@@ -108,5 +109,16 @@ describe('mayMessageChat', () => {
     expect(mayMessageChat('120363413823499258@g.us', known)).toBe(true);
     expect(mayMessageChat('919876543210@s.whatsapp.net', known)).toBe(true);
     expect(mayMessageChat('918287614988@s.whatsapp.net', known)).toBe(false);
+  });
+});
+
+describe("personalChatAllowed - personal chats paused on an owner's own number", () => {
+  it('allows everything unless paused; when paused, only listed numbers', () => {
+    expect(personalChatAllowed('919974035496@s.whatsapp.net', {})).toBe(true);
+    const env = { WHATSAPP_PERSONAL_CHATS: 'off', WHATSAPP_PERSONAL_ALLOW: '91 98765 43210, 919999999999' };
+    expect(personalChatAllowed('919974035496@s.whatsapp.net', env)).toBe(false);
+    expect(personalChatAllowed('919876543210@s.whatsapp.net', env)).toBe(true);
+    expect(personalChatAllowed('919999999999:3@s.whatsapp.net', env)).toBe(true);
+    expect(personalChatAllowed('123456789@lid', env)).toBe(false);
   });
 });

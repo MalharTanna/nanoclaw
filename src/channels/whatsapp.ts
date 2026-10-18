@@ -243,6 +243,25 @@ export class SendPacer {
  * bot) are fine; a personal chat only once that person has messaged us.
  * Exported for unit testing.
  */
+/**
+ * WHATSAPP_PERSONAL_CHATS=off: answer groups only, and personal chats only
+ * from the numbers in WHATSAPP_PERSONAL_ALLOW (comma-separated digits, e.g.
+ * test phones). For running on a number that is also the owner's own
+ * WhatsApp, so people writing to them personally never get the assistant.
+ */
+export function personalChatAllowed(
+  jid: string,
+  env: Record<string, string | undefined> = readEnvFile(['WHATSAPP_PERSONAL_CHATS', 'WHATSAPP_PERSONAL_ALLOW']),
+): boolean {
+  if ((process.env.WHATSAPP_PERSONAL_CHATS || env.WHATSAPP_PERSONAL_CHATS) !== 'off') return true;
+  const digits = jid.split('@')[0]!.split(':')[0]!;
+  const allow = (process.env.WHATSAPP_PERSONAL_ALLOW || env.WHATSAPP_PERSONAL_ALLOW || '')
+    .split(',')
+    .map((d) => d.replace(/\D/g, ''))
+    .filter(Boolean);
+  return jid.endsWith('@s.whatsapp.net') && allow.includes(digits);
+}
+
 export function mayMessageChat(jid: string, knownPersonalChats: Set<string>): boolean {
   if (jid.endsWith('@g.us')) return true;
   return knownPersonalChats.has(jid);
@@ -1398,6 +1417,9 @@ registerChannelAdapter('whatsapp', {
 
             // Translate LID → phone JID using v7's alt JID from extractAddressingContext
             const chatJid = await translateJid(rawJid, msg.key.remoteJidAlt);
+            // Personal chats can be paused (a number that is also someone's own WhatsApp):
+            // those messages are left alone entirely - not read, not answered.
+            if (!chatJid.endsWith('@g.us') && !personalChatAllowed(chatJid)) continue;
             if (!msg.key.fromMe) noteIncomingForClear(rawJid, chatJid, msg);
             if (!msg.key.fromMe && !chatJid.endsWith('@g.us')) notePersonalChat(rawJid, chatJid);
 
