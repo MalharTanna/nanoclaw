@@ -117,7 +117,6 @@ export function groupNotice(assistantName: string, businessName?: string): strin
     : 'This group is now connected to';
   return (
     `✅ ${who} **${assistantName}**, an AI assistant by Miroflow. I only reply when someone mentions me with @ or by name.\n\n` +
-    `📌 Please save this number in your contacts as *${assistantName}*, so you know who is replying.\n\n` +
     `ℹ️ *For everyone in this group:* messages sent to ${assistantName}, and files shared with it, are processed by Miroflow and its AI provider to reply. ` +
     `Replies and those messages are kept while the business's Miroflow account is active, so the assistant can remember context. Privacy: ${PRIVACY_URL}\n\n` +
     `To remove me, a group admin can open the group info, tap ${assistantName} and choose Remove.`

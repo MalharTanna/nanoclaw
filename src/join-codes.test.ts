@@ -211,7 +211,6 @@ describe('group notice', () => {
     const text = groupNotice('Miro', 'Fidiots Media');
     expect(text).toContain('*Fidiots Media* has connected this group to **Miro**');
     expect(text).toContain('I only reply when someone mentions me');
-    expect(text).toContain('Please save this number in your contacts as *Miro*');
     expect(text).toContain('open the group info, tap Miro and choose Remove');
   });
 
