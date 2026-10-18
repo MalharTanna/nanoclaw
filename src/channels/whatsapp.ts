@@ -665,14 +665,23 @@ registerChannelAdapter('whatsapp', {
       if (!force && now - lastOnlineWrite < 30_000) return;
       lastOnlineWrite = now;
       try {
-        fs.writeFileSync(lastOnlineFile, JSON.stringify({ at: now }));
+        fs.writeFileSync(lastOnlineFile, JSON.stringify({ at: now, number: ownNumber() }));
       } catch {
         /* best effort */
       }
     };
+    /** This install's number (digits). The catch-up only covers a gap on the same number. */
+    const ownNumber = (): string | null =>
+      sock?.user?.id?.split(':')[0]?.split('@')[0] ?? phoneNumber?.replace(/\D/g, '') ?? null;
     const readLastOnline = (): number | null => {
       try {
-        const at = (JSON.parse(fs.readFileSync(lastOnlineFile, 'utf8')) as { at?: unknown }).at;
+        const { at, number } = JSON.parse(fs.readFileSync(lastOnlineFile, 'utf8')) as {
+          at?: unknown;
+          number?: unknown;
+        };
+        // Linking a different number: its own chats' history is not ours to answer.
+        const want = phoneNumber?.replace(/\D/g, '');
+        if (typeof number !== 'string' || !want || number !== want) return null;
         return typeof at === 'number' ? at : null;
       } catch {
         return null;
