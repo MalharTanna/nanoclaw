@@ -21,6 +21,7 @@
  */
 import fs from 'fs';
 import path from 'path';
+import { isOwnNumber } from '../../install-mode.js';
 
 import { getChannelAdapterExact } from '../../channels/channel-registry.js';
 import { DATA_DIR } from '../../config.js';
@@ -31,6 +32,7 @@ import type { CallerContext } from '../frame.js';
 
 /** A person's WhatsApp chat id. Groups (@g.us) and LIDs are refused. */
 const USER_JID = /^[0-9]{5,20}@s\.whatsapp\.net$/;
+const GROUP_JID = /^[0-9-]{10,40}@g\.us$/;
 const FILE_NAME = /^[A-Za-z0-9 ._()-]{1,120}$/;
 const MAX_TEXT = 4_000;
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
@@ -63,7 +65,9 @@ export async function notifySend(args: Record<string, unknown>, ctx: CallerConte
   if (ctx.caller !== 'host') throw new Error('notify send is operator-only');
 
   const to = str(args.to);
-  if (!to || !USER_JID.test(to)) throw new Error('--to must be a user JID (<digits>@s.whatsapp.net)');
+  // A group only on a business's own number, for the notice when it turns Miro on there.
+  const groupOk = isOwnNumber() && !!to && GROUP_JID.test(to);
+  if (!to || (!USER_JID.test(to) && !groupOk)) throw new Error('--to must be a user JID (<digits>@s.whatsapp.net)');
 
   // --text-b64 lets callers pass any text safely (a value starting with "--"
   // would otherwise be read as a flag by the ncl client).

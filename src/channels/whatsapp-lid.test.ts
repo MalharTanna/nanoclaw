@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   lidMentionJids,
   mayMessageChat,
+  groupList,
   personalChatAllowed,
   missedPrefix,
   parseWhatsAppMentions,
@@ -120,5 +121,21 @@ describe("personalChatAllowed - personal chats paused on an owner's own number",
     expect(personalChatAllowed('919876543210@s.whatsapp.net', env)).toBe(true);
     expect(personalChatAllowed('919999999999:3@s.whatsapp.net', env)).toBe(true);
     expect(personalChatAllowed('123456789@lid', env)).toBe(false);
+  });
+});
+
+describe('groupList - groups a business can choose from on its own number', () => {
+  it('keeps id, name, size and community flag, groups only, sorted by name', () => {
+    const list = groupList({
+      '120363000000000002@g.us': { subject: 'Zeta team', size: 12 },
+      '120363000000000001@g.us': { subject: 'Alpha clients', participants: [1, 2, 3] },
+      '120363000000000003@g.us': { subject: 'Society', size: 400, isCommunityAnnounce: true },
+      '919999999999@s.whatsapp.net': { subject: 'not a group' },
+    });
+    expect(list).toEqual([
+      { jid: '120363000000000001@g.us', name: 'Alpha clients', size: 3, community: false },
+      { jid: '120363000000000003@g.us', name: 'Society', size: 400, community: true },
+      { jid: '120363000000000002@g.us', name: 'Zeta team', size: 12, community: false },
+    ]);
   });
 });
