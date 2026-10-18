@@ -10,6 +10,7 @@ import type { InboundEvent } from './channels/adapter.js';
 import {
   _resetJoinCodeCooldownForTest,
   groupNotice,
+  ownNumberGroupNotice,
   isSharedNumber,
   joinCodesPath,
   linkRequestsPath,
@@ -290,5 +291,19 @@ describe('group join cooling on linked device', () => {
     expect(released).toMatchObject({ platformId: '120363413823499259@g.us', code: 'AB23CD', sentAt: new Date(at).toISOString() });
     expect(JSON.parse(deliver.mock.calls[0]![4]).text).toContain('connected to **Miro**');
     expect(fs.readFileSync(queuedJoinsPath(dir), 'utf8')).toBe('');
+  });
+});
+
+describe("group notice on a business's own number", () => {
+  it('names the business, marks replies, says how to stop it, links privacy', () => {
+    const text = ownNumberGroupNotice('Miro', 'Adv. Dhruvin Bhuptani');
+    expect(text).toContain('*Adv. Dhruvin Bhuptani* uses Miro, an AI assistant, in this group');
+    expect(text).toContain('Replies marked "Miro:" are from the assistant');
+    expect(text).toContain('only replies when someone mentions it');
+    expect(text).toContain('processed by Miroflow and its AI provider');
+    expect(text).toContain('miroflow.in/privacy');
+    expect(text).toContain('To stop it in this group, ask *Adv. Dhruvin Bhuptani*.');
+    expect(text).not.toContain('Remove');
+    expect(ownNumberGroupNotice('Miro')).toContain('This business uses Miro');
   });
 });

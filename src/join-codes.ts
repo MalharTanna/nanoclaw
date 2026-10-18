@@ -124,6 +124,22 @@ export function groupNotice(assistantName: string, businessName?: string): strin
 }
 
 /**
+ * Posted once when a business turns Miro on for a group on its own number
+ * (own-number mode). Miro speaks from the owner's number here, so members
+ * can't remove it as a participant: the business turns it off. Wording
+ * approved by the owner on 2026-10-19.
+ */
+export function ownNumberGroupNotice(assistantName: string, businessName?: string): string {
+  const biz = businessName?.trim() ? `*${businessName.trim()}*` : 'This business';
+  const ask = businessName?.trim() ? `*${businessName.trim()}*` : 'the business';
+  return (
+    `✅ ${biz} uses ${assistantName}, an AI assistant, in this group. Replies marked "${assistantName}:" are from the assistant, and it only replies when someone mentions it.\n\n` +
+    `Messages sent to ${assistantName} are processed by Miroflow and its AI provider to reply. Privacy: ${PRIVACY_URL}\n\n` +
+    `To stop it in this group, ask ${ask}.`
+  );
+}
+
+/**
  * Largest group (members) that can be linked when the code doesn't say (the
  * control plane sends the plan's limit: Standard 10, Premium 30). Community
  * and announcement groups can't be linked at all.
