@@ -439,6 +439,29 @@ describe('tasks CLI resource', () => {
       delete process.env.NANOCLAW_SHARED_NUMBER;
     });
 
+    it("no per-chat cap on a business's own number (its daily send limit protects it)", async () => {
+      process.env.NANOCLAW_OWN_NUMBER = 'true';
+      try {
+        const a = chat('mg-own', 'chat-own');
+        const r = await dispatch(
+          {
+            id: 'c-own',
+            command: 'tasks-create',
+            args: {
+              name: 'water',
+              message: 'Reminder: water',
+              recurrence: '0 8-20 * * *',
+              process_after: '2999-03-01 08:00',
+            },
+          },
+          a,
+        );
+        expect(r.ok).toBe(true); // 13 a day
+      } finally {
+        delete process.env.NANOCLAW_OWN_NUMBER;
+      }
+    });
+
     it('caps a chat at 10 reminder messages a day on the shared number, counting every fire of repeating ones', async () => {
       process.env.NANOCLAW_SHARED_NUMBER = 'true';
       const a = chat('mg-cap', 'chat-cap');

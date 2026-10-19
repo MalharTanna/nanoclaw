@@ -37,6 +37,7 @@ import {
 } from '../../modules/scheduling/create.js';
 import { getDestinationByName, getDestinationByTarget } from '../../modules/agent-to-agent/db/agent-destinations.js';
 import { tenantLocked } from '../../tenant-lock.js';
+import { isOwnNumber } from '../../install-mode.js';
 import { inboundDbPath, withInboundDb } from '../../session-manager.js';
 import { registerResource } from '../crud.js';
 import { appendRunLog } from '../../modules/scheduling/run-log.js';
@@ -267,7 +268,9 @@ function createTask(args: Record<string, unknown>, ctx: CallerContext) {
   const originDestination = originDestinationOf(group, originSessionId);
   // A watch with a check script messages only when its condition is met, so
   // its checks don't count toward the chat's daily reminder messages.
-  if (tenantLocked() && originDestination && !script) enforceDailyChatLimit(group, originDestination, prepared);
+  // The per-chat cap protects the one shared number; a business's own number has its own daily send limit (wa-limits).
+  if (tenantLocked() && !isOwnNumber() && originDestination && !script)
+    enforceDailyChatLimit(group, originDestination, prepared);
   // The same reminder asked for twice (a repeated or quoted request) is not created twice.
   if (originDestination) {
     const dup = findDuplicateTask(group, originDestination, prepared);
