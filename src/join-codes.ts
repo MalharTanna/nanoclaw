@@ -29,6 +29,7 @@ import { idTag } from './log-redact.js';
 import type { InboundEvent } from './channels/adapter.js';
 import { bookJoinSlot, joinTimeText } from './wa-limits.js';
 import { waChannel } from './wa-mode.js';
+import { isOwnNumber } from './install-mode.js';
 
 export const JOIN_RE = /^\s*join\s+([A-HJ-NP-Z2-9]{6})\s*$/i;
 const INVALID_REPLY_COOLDOWN_MS = 10 * 60_000;
@@ -259,7 +260,8 @@ export async function maybeHandleJoinCode(
   }
   fs.appendFileSync(linkRequestsPath(dataDir), JSON.stringify(request) + '\n', { mode: 0o600 });
   log.info('Join code accepted', { chat: idTag(event.platformId), tenantId: armed.tenantId });
-  if (isGroup) await reply(event, groupNotice(armed.assistantName, armed.businessName));
+  // On a business's own number the control plane has the own-number notice posted.
+  if (isGroup && !isOwnNumber()) await reply(event, groupNotice(armed.assistantName, armed.businessName));
   return true;
 }
 

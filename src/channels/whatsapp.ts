@@ -47,6 +47,7 @@ import { idTag } from '../log-redact.js';
 import { registerChannelAdapter } from './channel-registry.js';
 import { waChannel } from '../wa-mode.js';
 import { isOwnNumber } from '../install-mode.js';
+import { matchOwnerCommand } from '../owner-commands.js';
 import { DAILY_LIMIT_NOTICE, DailySendBudget, markLinked } from '../wa-limits.js';
 import { flushQueuedJoins } from '../join-codes.js';
 import { normalizeOptions, type NormalizedOption } from './ask-question.js';
@@ -251,47 +252,6 @@ export class SendPacer {
  * test phones). For running on a number that is also the owner's own
  * WhatsApp, so people writing to them personally never get the assistant.
  */
-export const GROUP_LIST_FILE = 'wa-groups.json';
-
-type GroupMetaLike = {
-  subject?: string | null;
-  size?: number | null;
-  participants?: unknown[] | null;
-  isCommunity?: boolean | null;
-  isCommunityAnnounce?: boolean | null;
-  linkedParent?: string | null;
-};
-
-/**
- * The groups this number is in, for the business to choose from: id, name,
- * member count and whether it is a community. Names are the group's own
- * subject; no member details are kept. Sorted by name.
- */
-export function groupList(
-  groups: Record<string, GroupMetaLike>,
-): { jid: string; name: string; size: number; community: boolean }[] {
-  return Object.entries(groups)
-    .filter(([jid]) => jid.endsWith('@g.us'))
-    .map(([jid, m]) => ({
-      jid,
-      name: (m.subject ?? '').slice(0, 120),
-      size: m.size ?? m.participants?.length ?? 0,
-      community: Boolean(m.isCommunity || m.isCommunityAnnounce || m.linkedParent),
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .slice(0, 500);
-}
-
-function writeGroupList(file: string, groups: Record<string, GroupMetaLike>): void {
-  try {
-    const tmp = `${file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ at: new Date().toISOString(), groups: groupList(groups) }), { mode: 0o600 });
-    fs.renameSync(tmp, file);
-  } catch (err) {
-    log.warn('Could not save the group list', { err });
-  }
-}
-
 export function personalChatAllowed(
   jid: string,
   env: Record<string, string | undefined> = readEnvFile(['WHATSAPP_PERSONAL_CHATS', 'WHATSAPP_PERSONAL_ALLOW']),
@@ -1027,8 +987,6 @@ registerChannelAdapter('whatsapp', {
             count++;
           }
         }
-        // A business's own number: the list it picks groups from in its dashboard.
-        if (isOwnNumber()) writeGroupList(path.join(process.cwd(), 'store', GROUP_LIST_FILE), groups);
         lastGroupSync = Date.now();
         log.info('Group metadata synced', { count });
       } catch (err) {
@@ -1601,12 +1559,16 @@ registerChannelAdapter('whatsapp', {
 
             // A join code in a group: tell the join-code check how big the
             // group is, so large and community groups can be refused.
-            let groupInfo: { size: number; community: boolean } | undefined;
-            if (isGroup && /^\s*join\s+[a-z0-9]{6}\s*$/i.test(content)) {
+            let groupInfo: { name?: string; size: number; community: boolean } | undefined;
+            if (
+              isGroup &&
+              (/^\s*join\s+[a-z0-9]{6}\s*$/i.test(content) || (msg.key.fromMe && matchOwnerCommand(content)))
+            ) {
               try {
                 const meta = await getNormalizedGroupMetadata(rawJid);
                 if (meta) {
                   groupInfo = {
+                    ...(meta.subject ? { name: String(meta.subject).slice(0, 120) } : {}),
                     size: meta.size ?? meta.participants?.length ?? 0,
                     community: Boolean(meta.isCommunity || meta.isCommunityAnnounce || meta.linkedParent),
                   };
@@ -1653,21 +1615,6 @@ registerChannelAdapter('whatsapp', {
         }
       };
       sock.ev.on('messages.upsert', async ({ messages }) => processIncoming(messages));
-      // Own number: a group the number joins or a renamed group shows up in the
-      // business's list within a minute, not at the next daily sync.
-      if (isOwnNumber()) {
-        let groupSyncTimer: NodeJS.Timeout | null = null;
-        const soon = () => {
-          if (groupSyncTimer) return;
-          groupSyncTimer = setTimeout(() => {
-            groupSyncTimer = null;
-            void syncGroupMetadata(true);
-          }, 60_000);
-          groupSyncTimer.unref?.();
-        };
-        sock.ev.on('groups.upsert', soon);
-        sock.ev.on('groups.update', soon);
-      }
 
       // History sync after a fresh link: answer what was missed while offline.
       sock.ev.on('messaging-history.set', async ({ messages }) => {

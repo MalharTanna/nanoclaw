@@ -23,6 +23,7 @@ import { gateCommand } from './command-gate.js';
 import { getAgentGroup } from './db/agent-groups.js';
 import { recordDroppedMessage } from './db/dropped-messages.js';
 import { isOwnNumber } from './install-mode.js';
+import { maybeHandleOwnerCommand } from './owner-commands.js';
 import {
   createMessagingGroup,
   getMessagingGroupAgents,
@@ -193,6 +194,9 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
   }
 
   const isMention = event.message.isMention === true;
+
+  // A business's own number: "Miro start" / "Miro stop" from the owner's phone (src/owner-commands.ts).
+  if (await maybeHandleOwnerCommand(event)) return;
 
   // 1. Combined lookup: messaging_group row + count of wired agents in a
   //    single query. Cheap short-circuit for the common "unwired channel"
