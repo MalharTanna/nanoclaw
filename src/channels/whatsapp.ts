@@ -48,6 +48,7 @@ import { registerChannelAdapter } from './channel-registry.js';
 import { waChannel } from '../wa-mode.js';
 import { isOwnNumber } from '../install-mode.js';
 import { matchOwnerCommand } from '../owner-commands.js';
+import { MediaAroundMention } from '../media-around-mention.js';
 import { DAILY_LIMIT_NOTICE, DailySendBudget, markLinked } from '../wa-limits.js';
 import { flushQueuedJoins } from '../join-codes.js';
 import { normalizeOptions, type NormalizedOption } from './ask-question.js';
@@ -637,6 +638,12 @@ registerChannelAdapter('whatsapp', {
       }
     };
     const budget = new DailySendBudget();
+    const mediaAround = new MediaAroundMention<Awaited<ReturnType<typeof downloadInboundMedia>>[number]>();
+    // The assistant's name as a whole word (as the router checks it).
+    const nameRe = new RegExp(
+      `(^|[^\\p{L}\\p{N}_])${ASSISTANT_NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}_])`,
+      'iu',
+    );
     let joinTimer: NodeJS.Timeout | null = null;
     /** Every send goes through here: cold-chat guard, the number's daily limit, then the pacer. */
     async function safeSend(jid: string, content: Parameters<WASocket['sendMessage']>[1]) {
@@ -1557,6 +1564,16 @@ registerChannelAdapter('whatsapp', {
 
             if (missedWhileOffline) content = missedPrefix(Number(msg.messageTimestamp), TIMEZONE) + content;
 
+            // Groups: a voice note / photo / file just before or after mentioning
+            // the assistant goes with the mention (src/media-around-mention.ts).
+            let addressedInGroup = botMentionedInGroup;
+            if (isGroup && !missedWhileOffline && !quoted?.mediaMessage) {
+              const named = botMentionedInGroup || nameRe.test(content);
+              const r = mediaAround.apply(`${chatJid}|${sender}`, Date.now(), { addressed: named, attachments });
+              if (r.attachments !== attachments) attachments.splice(0, attachments.length, ...r.attachments);
+              if (r.addressed && !named) addressedInGroup = true;
+            }
+
             // A join code in a group: tell the join-code check how big the
             // group is, so large and community groups can be refused.
             let groupInfo: { name?: string; size: number; community: boolean } | undefined;
@@ -1586,7 +1603,7 @@ registerChannelAdapter('whatsapp', {
               // approval-required messaging_group when the chat is unknown,
               // instead of silently dropping. In groups, only an explicit
               // @-mention counts.
-              isMention: computeIsMention(isGroup, botMentionedInGroup),
+              isMention: computeIsMention(isGroup, addressedInGroup),
               isGroup,
               content: {
                 text: content,

@@ -26,7 +26,8 @@ const GROUP_JID = /^[0-9-]{10,40}@g\.us$/;
 export function matchOwnerCommand(text: string | undefined, assistantName: string = ASSISTANT_NAME): 'start' | 'stop' | null {
   const m = /^\s*(.{1,40}?)\s+(start|stop)\s*[.!]?\s*$/i.exec(text ?? '');
   if (!m) return null;
-  const name = m[1]!.trim().replace(/^@/, '').toLowerCase();
+  // "Miro start", "Miro, start", "Miro: stop", "@Miro stop"
+  const name = m[1]!.trim().replace(/^@/, '').replace(/[,:;]+$/, '').trim().toLowerCase();
   if (name !== 'miro' && name !== assistantName.trim().toLowerCase()) return null;
   return m[2]!.toLowerCase() as 'start' | 'stop';
 }

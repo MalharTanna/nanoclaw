@@ -23,6 +23,9 @@ describe('owner commands on a business\'s own number', () => {
     expect(matchOwnerCommand('Miro start', 'Miro')).toBe('start');
     expect(matchOwnerCommand('  miro STOP. ', 'Miro')).toBe('stop');
     expect(matchOwnerCommand('Asha start', 'Asha')).toBe('start');
+    expect(matchOwnerCommand('Miro, stop', 'Miro')).toBe('stop');
+    expect(matchOwnerCommand('Miro: start', 'Miro')).toBe('start');
+    expect(matchOwnerCommand('@Miro stop', 'Miro')).toBe('stop');
     expect(matchOwnerCommand('Miro start the meeting', 'Miro')).toBeNull();
     expect(matchOwnerCommand('Bob start', 'Miro')).toBeNull();
   });
