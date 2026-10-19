@@ -125,9 +125,14 @@ describe("personalChatAllowed - personal chats paused on an owner's own number",
 });
 
 describe("isOwnReplyText - the assistant's own replies echoing back", () => {
-  it('knows "Miro: ..." and the bold "*Miro (Asha):* ..."', () => {
+  it('knows the bold "*Miro:*" and "*Miro (Asha):*" labels only', () => {
     expect(isOwnReplyText('*Miro (Asha):* Done', 'Miro (Asha)')).toBe(true);
-    expect(isOwnReplyText('Miro (Asha): Done', 'Miro (Asha)')).toBe(true);
+    expect(isOwnReplyText('*Miro:* Done', 'Miro')).toBe(true);
     expect(isOwnReplyText('Miro, remind me', 'Miro (Asha)')).toBe(false);
+  });
+
+  it('treats the owner typing "Miro: ..." as a request', () => {
+    expect(isOwnReplyText('Miro: what is my name ?', 'Miro')).toBe(false);
+    expect(isOwnReplyText('Miro (Asha): Done', 'Miro (Asha)')).toBe(false);
   });
 });

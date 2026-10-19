@@ -49,6 +49,7 @@ import { waChannel } from '../wa-mode.js';
 import { isOwnNumber } from '../install-mode.js';
 import { matchOwnerCommand } from '../owner-commands.js';
 import { MediaAroundMention } from '../media-around-mention.js';
+import { ensureOwnerSelfChat } from '../owner-self-chat.js';
 import { addressesAssistant, displayName } from '../assistant-names.js';
 import { DAILY_LIMIT_NOTICE, DailySendBudget, markLinked } from '../wa-limits.js';
 import { flushQueuedJoins } from '../join-codes.js';
@@ -254,10 +255,13 @@ export class SendPacer {
  * test phones). For running on a number that is also the owner's own
  * WhatsApp, so people writing to them personally never get the assistant.
  */
-/** A reply the assistant sent on a shared-with-a-person number: "Miro: ..." or "*Miro (Asha):* ...". */
+/**
+ * A reply the assistant sent on a number shared with a person: it starts with
+ * the bold label "*Miro:*" or "*Miro (Asha):*". The owner typing "Miro: ..."
+ * (no bold) is a request, not an echo.
+ */
 export function isOwnReplyText(content: string, name: string = displayName()): boolean {
-  const t = content.replace(/^\*/, '');
-  return t.startsWith(`${name}:`) || t.startsWith(`${ASSISTANT_NAME}:`);
+  return content.startsWith(`*${name}:*`) || content.startsWith(`*${ASSISTANT_NAME}:*`);
 }
 
 export function personalChatAllowed(
@@ -649,7 +653,7 @@ registerChannelAdapter('whatsapp', {
     let joinTimer: NodeJS.Timeout | null = null;
     /** Every send goes through here: cold-chat guard, the number's daily limit, then the pacer. */
     async function safeSend(jid: string, content: Parameters<WASocket['sendMessage']>[1]) {
-      if (safetyLimits && !mayMessageChat(jid, knownPersonalChats)) {
+      if (safetyLimits && jid !== botPhoneJid && !mayMessageChat(jid, knownPersonalChats)) {
         log.warn('Not sending: this person has never messaged the bot number', { jid: idTag(jid) });
         return undefined;
       }
@@ -1391,6 +1395,13 @@ registerChannelAdapter('whatsapp', {
               setLidPhoneMapping(lidUser, botPhoneJid);
               botLidUser = lidUser;
             }
+            if (isOwnNumber()) {
+              try {
+                ensureOwnerSelfChat(botPhoneJid);
+              } catch (err) {
+                log.warn('Owner self-chat wiring failed', { err });
+              }
+            }
           }
 
           // Flush queued messages
@@ -1447,7 +1458,9 @@ registerChannelAdapter('whatsapp', {
             const chatJid = await translateJid(rawJid, msg.key.remoteJidAlt);
             // Personal chats can be paused (a number that is also someone's own WhatsApp):
             // those messages are left alone entirely - not read, not answered.
-            if (!chatJid.endsWith('@g.us') && !personalChatAllowed(chatJid)) continue;
+            // The owner's own "Message yourself" chat always reaches the assistant on its own number.
+            const selfChat = isOwnNumber() && chatJid === botPhoneJid;
+            if (!chatJid.endsWith('@g.us') && !selfChat && !personalChatAllowed(chatJid)) continue;
             if (!msg.key.fromMe) noteIncomingForClear(rawJid, chatJid, msg);
             if (!msg.key.fromMe && !chatJid.endsWith('@g.us')) notePersonalChat(rawJid, chatJid);
 
