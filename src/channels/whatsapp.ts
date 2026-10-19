@@ -217,7 +217,7 @@ export class SendPacer {
   private recent: number[] = [];
   private chain: Promise<void> = Promise.resolve();
   constructor(
-    private readonly minGapMs = 3_000,
+    private readonly minGapMs = 1_000,
     private readonly perMinute = 12,
     private readonly clock: () => number = () => Date.now(),
     private readonly sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),

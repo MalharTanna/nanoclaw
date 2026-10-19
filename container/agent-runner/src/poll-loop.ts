@@ -28,17 +28,17 @@ import {
 import { isUploadTraceCommand, uploadTrace } from './upload-trace.js';
 import type { AgentProvider, AgentQuery, ProviderEvent, ProviderExchange } from './providers/types.js';
 
-const POLL_INTERVAL_MS = 1000;
-const ACTIVE_POLL_INTERVAL_MS = 500;
+const POLL_INTERVAL_MS = 250;
+const ACTIVE_POLL_INTERVAL_MS = 250;
 
 /**
  * Number of consecutive `database disk image is malformed` errors after which
  * the follow-up poll gives up and exits the process. At ACTIVE_POLL_INTERVAL_MS
- * = 500ms this is roughly 5 seconds — long enough to dodge a transient torn
+ * = 250ms this is roughly 5 seconds — long enough to dodge a transient torn
  * read during a host write, short enough to recover quickly from a poisoned
  * page cache (host-sweep then respawns with a fresh mount).
  */
-const CORRUPTION_STREAK_EXIT = 10;
+const CORRUPTION_STREAK_EXIT = 20;
 
 /**
  * True for SQLite errors that indicate a corrupt READ view — almost always a
