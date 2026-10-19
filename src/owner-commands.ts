@@ -12,6 +12,7 @@
 import fs from 'fs';
 
 import { ASSISTANT_NAME } from './config.js';
+import { assistantNames } from './assistant-names.js';
 import { DATA_DIR } from './config.js';
 import { getDeliveryAdapter } from './delivery.js';
 import { isOwnNumber } from './install-mode.js';
@@ -23,12 +24,13 @@ import { idTag } from './log-redact.js';
 const GROUP_JID = /^[0-9-]{10,40}@g\.us$/;
 
 /** "Miro start" / "miro STOP" (or the assistant's own name), nothing else in the message. */
-export function matchOwnerCommand(text: string | undefined, assistantName: string = ASSISTANT_NAME): 'start' | 'stop' | null {
+export function matchOwnerCommand(text: string | undefined, names: string | string[] = assistantNames()): 'start' | 'stop' | null {
   const m = /^\s*(.{1,40}?)\s+(start|stop)\s*[.!]?\s*$/i.exec(text ?? '');
   if (!m) return null;
   // "Miro start", "Miro, start", "Miro: stop", "@Miro stop"
   const name = m[1]!.trim().replace(/^@/, '').replace(/[,:;]+$/, '').trim().toLowerCase();
-  if (name !== 'miro' && name !== assistantName.trim().toLowerCase()) return null;
+  const ok = ['miro', ...(Array.isArray(names) ? names : [names]).map((n) => n.trim().toLowerCase())];
+  if (!ok.includes(name)) return null;
   return m[2]!.toLowerCase() as 'start' | 'stop';
 }
 

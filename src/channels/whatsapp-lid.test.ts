@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   lidMentionJids,
   mayMessageChat,
+  isOwnReplyText,
   personalChatAllowed,
   missedPrefix,
   parseWhatsAppMentions,
@@ -120,5 +121,13 @@ describe("personalChatAllowed - personal chats paused on an owner's own number",
     expect(personalChatAllowed('919876543210@s.whatsapp.net', env)).toBe(true);
     expect(personalChatAllowed('919999999999:3@s.whatsapp.net', env)).toBe(true);
     expect(personalChatAllowed('123456789@lid', env)).toBe(false);
+  });
+});
+
+describe("isOwnReplyText - the assistant's own replies echoing back", () => {
+  it('knows "Miro: ..." and the bold "*Miro (Asha):* ..."', () => {
+    expect(isOwnReplyText('*Miro (Asha):* Done', 'Miro (Asha)')).toBe(true);
+    expect(isOwnReplyText('Miro (Asha): Done', 'Miro (Asha)')).toBe(true);
+    expect(isOwnReplyText('Miro, remind me', 'Miro (Asha)')).toBe(false);
   });
 });

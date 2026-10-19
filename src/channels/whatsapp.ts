@@ -49,6 +49,7 @@ import { waChannel } from '../wa-mode.js';
 import { isOwnNumber } from '../install-mode.js';
 import { matchOwnerCommand } from '../owner-commands.js';
 import { MediaAroundMention } from '../media-around-mention.js';
+import { addressesAssistant, displayName } from '../assistant-names.js';
 import { DAILY_LIMIT_NOTICE, DailySendBudget, markLinked } from '../wa-limits.js';
 import { flushQueuedJoins } from '../join-codes.js';
 import { normalizeOptions, type NormalizedOption } from './ask-question.js';
@@ -253,6 +254,12 @@ export class SendPacer {
  * test phones). For running on a number that is also the owner's own
  * WhatsApp, so people writing to them personally never get the assistant.
  */
+/** A reply the assistant sent on a shared-with-a-person number: "Miro: ..." or "*Miro (Asha):* ...". */
+export function isOwnReplyText(content: string, name: string = displayName()): boolean {
+  const t = content.replace(/^\*/, '');
+  return t.startsWith(`${name}:`) || t.startsWith(`${ASSISTANT_NAME}:`);
+}
+
 export function personalChatAllowed(
   jid: string,
   env: Record<string, string | undefined> = readEnvFile(['WHATSAPP_PERSONAL_CHATS', 'WHATSAPP_PERSONAL_ALLOW']),
@@ -639,11 +646,6 @@ registerChannelAdapter('whatsapp', {
     };
     const budget = new DailySendBudget();
     const mediaAround = new MediaAroundMention<Awaited<ReturnType<typeof downloadInboundMedia>>[number]>();
-    // The assistant's name as a whole word (as the router checks it).
-    const nameRe = new RegExp(
-      `(^|[^\\p{L}\\p{N}_])${ASSISTANT_NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}_])`,
-      'iu',
-    );
     let joinTimer: NodeJS.Timeout | null = null;
     /** Every send goes through here: cold-chat guard, the number's daily limit, then the pacer. */
     async function safeSend(jid: string, content: Parameters<WASocket['sendMessage']>[1]) {
@@ -1497,7 +1499,7 @@ registerChannelAdapter('whatsapp', {
 
             // Quote-replies: show the assistant what is being replied to, and
             // bring a quoted photo/document/voice note along ("summarise this").
-            const quoted = extractQuotedReply(normalized, ASSISTANT_NAME, botPhoneJid, botLidUser);
+            const quoted = extractQuotedReply(normalized, displayName(), botPhoneJid, botLidUser);
             if (quoted?.mediaMessage && attachments.length === 0) {
               const quotedMsg = {
                 key: { remoteJid: rawJid, id: quoted.id, participant: quoted.participant, fromMe: false },
@@ -1534,10 +1536,10 @@ registerChannelAdapter('whatsapp', {
               // customer's chat unprompted.
               if (sharedNumber) continue;
               if (sentMessageCache.has(msg.key.id || '')) continue;
-              if (!ASSISTANT_HAS_OWN_NUMBER && content.startsWith(`${ASSISTANT_NAME}:`)) continue;
+              if (!ASSISTANT_HAS_OWN_NUMBER && isOwnReplyText(content)) continue;
             }
 
-            const isBotMessage = ASSISTANT_HAS_OWN_NUMBER ? false : content.startsWith(`${ASSISTANT_NAME}:`);
+            const isBotMessage = ASSISTANT_HAS_OWN_NUMBER ? false : isOwnReplyText(content);
 
             // Check if this reply answers a pending question via slash command
             const pending = pendingQuestions.get(chatJid);
@@ -1568,7 +1570,7 @@ registerChannelAdapter('whatsapp', {
             // the assistant goes with the mention (src/media-around-mention.ts).
             let addressedInGroup = botMentionedInGroup;
             if (isGroup && !missedWhileOffline && !quoted?.mediaMessage) {
-              const named = botMentionedInGroup || nameRe.test(content);
+              const named = botMentionedInGroup || addressesAssistant(content);
               const r = mediaAround.apply(`${chatJid}|${sender}`, Date.now(), { addressed: named, attachments });
               if (r.attachments !== attachments) attachments.splice(0, attachments.length, ...r.attachments);
               if (r.addressed && !named) addressedInGroup = true;
@@ -1763,7 +1765,8 @@ registerChannelAdapter('whatsapp', {
           const { text: formatted, mentions } = formatWhatsApp(
             rewriteLidMentions(text, await lidPhoneDigits(text, platformId)),
           );
-          const prefixed = ASSISTANT_HAS_OWN_NUMBER ? formatted : `${ASSISTANT_NAME}: ${formatted}`;
+          // The assistant's name in bold, so its replies stand out from the owner's own messages.
+          const prefixed = ASSISTANT_HAS_OWN_NUMBER ? formatted : `*${displayName()}:* ${formatted}`;
           return sendRawMessage(platformId, prefixed, lidMentionJids(mentions, unresolvedLids));
         }
       },

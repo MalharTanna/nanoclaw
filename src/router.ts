@@ -24,6 +24,7 @@ import { getAgentGroup } from './db/agent-groups.js';
 import { recordDroppedMessage } from './db/dropped-messages.js';
 import { isOwnNumber } from './install-mode.js';
 import { maybeHandleOwnerCommand } from './owner-commands.js';
+import { addressesAssistant } from './assistant-names.js';
 import {
   createMessagingGroup,
   getMessagingGroupAgents,
@@ -381,7 +382,8 @@ export async function routeInbound(event: InboundEvent): Promise<void> {
 
     // Shared (Miroflow) installs: a message that starts with the assistant's name ("Miro, ...")
     // or has "@Miro" typed by hand addresses it too, not only a picked @-tag.
-    const named = tenantLocked() && mg.is_group === 1 && addressesByName(messageText, agentGroup.name);
+    // The assistant's name (and a business's own name for it, "Miro (Asha)") addresses it too.
+    const named = tenantLocked() && mg.is_group === 1 && (addressesByName(messageText, agentGroup.name) || addressesAssistant(messageText));
     const engages = evaluateEngage(agent, messageText, isMention || named, mg, effectiveThreadId);
 
     const accessOk = engages && (!accessGate || accessGate(event, userId, mg, agent.agent_group_id).allowed);
