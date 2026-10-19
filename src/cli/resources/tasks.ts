@@ -265,7 +265,9 @@ function createTask(args: Record<string, unknown>, ctx: CallerContext) {
   });
   const originSessionId = ctx.caller === 'agent' ? ctx.sessionId : null;
   const originDestination = originDestinationOf(group, originSessionId);
-  if (tenantLocked() && originDestination) enforceDailyChatLimit(group, originDestination, prepared);
+  // A watch with a check script messages only when its condition is met, so
+  // its checks don't count toward the chat's daily reminder messages.
+  if (tenantLocked() && originDestination && !script) enforceDailyChatLimit(group, originDestination, prepared);
   // The same reminder asked for twice (a repeated or quoted request) is not created twice.
   if (originDestination) {
     const dup = findDuplicateTask(group, originDestination, prepared);
@@ -328,8 +330,8 @@ function enforceDailyChatLimit(
       withInbound(session, (db) =>
         selectLiveTasks(db).reduce((sum, row) => {
           try {
-            if ((JSON.parse(row.content) as { originDestination?: string }).originDestination !== destination)
-              return sum;
+            const c = JSON.parse(row.content) as { originDestination?: string; script?: string | null };
+            if (c.originDestination !== destination || c.script) return sum; // watches don't count
           } catch {
             return sum;
           }

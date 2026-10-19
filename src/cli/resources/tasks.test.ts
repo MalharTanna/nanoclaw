@@ -457,6 +457,22 @@ describe('tasks CLI resource', () => {
       expect(JSON.stringify(eleventh)).toContain('at most 10 a day');
       // Another chat is fine.
       expect((await add(b, 'call', { process_after: '2999-03-01 17:30' })).ok).toBe(true);
+      // A court-board watch checks every 5 minutes but messages only when its script says so: it doesn't count.
+      const watch = await dispatch(
+        {
+          id: 'c-watch',
+          command: 'tasks-create',
+          args: {
+            name: 'court22',
+            prompt: 'Tell them the serial number crossed 20',
+            script: 'echo \'{"wakeAgent": false}\'',
+            recurrence: '*/5 10-16 * * *',
+            process_after: '2999-03-01 10:00',
+          },
+        },
+        a,
+      );
+      expect(watch.ok).toBe(true);
       // A repeating task that wakes the AI keeps the 4-a-day limit, with no override.
       const agentTask = await dispatch(
         {
