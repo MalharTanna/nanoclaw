@@ -1282,6 +1282,11 @@ registerChannelAdapter('whatsapp', {
         printQRInTerminal: false,
         logger: baileysLogger,
         browser: Browsers.macOS('Chrome'),
+        // Own number: the number is also the owner's own WhatsApp. A linked
+        // device that shows as online makes WhatsApp treat the owner as
+        // reading there: the phone stops notifying and personal chats look
+        // read. Stay offline; replies and "typing..." still work.
+        markOnlineOnConnect: !isOwnNumber(),
         cachedGroupMetadata: async (jid: string) => getNormalizedGroupMetadata(jid),
         getMessage: async (key: WAMessageKey) => {
           // Check in-memory cache first (recently sent messages)
@@ -1437,8 +1442,9 @@ registerChannelAdapter('whatsapp', {
             /* ignore */
           }
 
-          // Announce availability for presence updates
-          sock.sendPresenceUpdate('available').catch((err) => {
+          // Announce availability for presence updates (not on a business's
+          // own number: see markOnlineOnConnect above).
+          sock.sendPresenceUpdate(isOwnNumber() ? 'unavailable' : 'available').catch((err) => {
             log.warn('Failed to send presence update', { err });
           });
 
