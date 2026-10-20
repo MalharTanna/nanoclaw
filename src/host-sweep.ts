@@ -64,8 +64,10 @@ export function parseSqliteUtc(s: string): number {
 const SWEEP_INTERVAL_MS = 60_000;
 // Absolute idle ceiling for a running container. If the heartbeat file hasn't
 // been touched in this long, the container is either stuck or doing genuinely
-// nothing — kill and restart on the next inbound.
-export const ABSOLUTE_CEILING_MS = 30 * 60 * 1000;
+// nothing — kill and restart on the next inbound. Miroflow: 2 hours, so a
+// chat that goes quiet for a while answers without a ~9 s cold start (a crash
+// or a stuck claim is still caught at once by the other checks).
+export const ABSOLUTE_CEILING_MS = 2 * 60 * 60 * 1000;
 // Stuck tolerance window applied per 'processing' claim — "did we see any
 // signs of life since this message was claimed?"
 export const CLAIM_STUCK_MS = 60 * 1000;
