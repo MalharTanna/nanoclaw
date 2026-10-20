@@ -213,11 +213,12 @@ export async function maybeHandleJoinCode(
     return true;
   }
 
-  // Large and community groups are refused: members there often don't know
-  // each other, and reports from them are what gets a number blocked.
+  // Community groups are refused. On the shared number large groups were too
+  // (members there often don't know each other, and their reports are what
+  // gets a number blocked); a business's own number has no size limit.
   if (isGroup) {
     const info = groupInfoOf(event);
-    const limit = armed.maxGroupMembers ?? MAX_GROUP_MEMBERS;
+    const limit = isOwnNumber() ? Number.POSITIVE_INFINITY : (armed.maxGroupMembers ?? MAX_GROUP_MEMBERS);
     if (info && (info.community || info.size > limit)) {
       const last = invalidRepliedAt.get(event.platformId) ?? 0;
       if (now - last >= INVALID_REPLY_COOLDOWN_MS) {

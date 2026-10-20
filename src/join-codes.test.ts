@@ -156,6 +156,19 @@ describe('maybeHandleJoinCode', () => {
     expect(JSON.parse(deliver.mock.calls[0]![4]).text).toContain('this plan allows groups of up to 20');
   });
 
+  it('a business\'s own number has no group size limit (communities are still refused)', async () => {
+    process.env.NANOCLAW_OWN_NUMBER = 'true';
+    try {
+      arm({ KM4PQR: { expiresAt: '2026-09-26T00:00:00.000Z', maxGroupMembers: 20 } });
+      const g = event(true, '120363000000000096@g.us');
+      g.message.content = JSON.stringify({ text: 'join KM4PQR', groupInfo: { size: 250, community: false } });
+      expect(await maybeHandleJoinCode(g, 'join KM4PQR', dir, NOW)).toBe(true);
+      expect(requests()).toHaveLength(1);
+    } finally {
+      delete process.env.NANOCLAW_OWN_NUMBER;
+    }
+  });
+
   it('accepts a code that was valid when the message was sent, even if handled later (after an outage)', async () => {
     arm({ AB23CD: { expiresAt: '2026-09-25T09:00:00.000Z' } }); // expired an hour before NOW
     const late = event();

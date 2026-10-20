@@ -50,6 +50,7 @@ import { isOwnNumber } from '../install-mode.js';
 import { matchOwnerCommand } from '../owner-commands.js';
 import { MediaAroundMention } from '../media-around-mention.js';
 import { ensureOwnerSelfChat } from '../owner-self-chat.js';
+import { isChatWired } from '../chat-wired.js';
 import { addressesAssistant, displayName } from '../assistant-names.js';
 import { DAILY_LIMIT_NOTICE, DailySendBudget, markLinked } from '../wa-limits.js';
 import { flushQueuedJoins } from '../join-codes.js';
@@ -1368,9 +1369,10 @@ registerChannelAdapter('whatsapp', {
 
           log.info('WhatsApp connection closed', { reason, shouldReconnect, shuttingDown });
 
-          // Only a linked number can be unstable: a QR or pairing code that
-          // expires while linking (408 with no account yet) is not a drop.
-          if (shouldReconnect && safetyLimits && state.creds.me && noteConnectionDrop()) {
+          // Shared number only: frequent drops pause scheduled reminders. A
+          // business's own number never pauses them. A QR or pairing code that
+          // expires while linking (no account yet) is never a drop.
+          if (shouldReconnect && sharedNumber && state.creds.me && noteConnectionDrop()) {
             log.warn('WhatsApp unstable: pausing automated reminders for 1 hour');
           }
           if (shouldReconnect) {
@@ -1561,13 +1563,16 @@ registerChannelAdapter('whatsapp', {
               content = rewriteLidMentions(content, map);
             }
 
-            // Download media attachments (images, video, audio, documents)
-            const attachments = await downloadInboundMedia(msg, normalized);
+            // Download media attachments (images, video, audio, documents).
+            // Own number: only in chats Miro is on - a group it is not on keeps
+            // its photos, voice notes and files to itself.
+            const mayDownload = !isOwnNumber() || isChatWired(chatJid);
+            const attachments = mayDownload ? await downloadInboundMedia(msg, normalized) : [];
 
             // Quote-replies: show the assistant what is being replied to, and
             // bring a quoted photo/document/voice note along ("summarise this").
             const quoted = extractQuotedReply(normalized, displayName(), botPhoneJid, botLidUser);
-            if (quoted?.mediaMessage && attachments.length === 0) {
+            if (mayDownload && quoted?.mediaMessage && attachments.length === 0) {
               const quotedMsg = {
                 key: { remoteJid: rawJid, id: quoted.id, participant: quoted.participant, fromMe: false },
                 message: quoted.mediaMessage,
