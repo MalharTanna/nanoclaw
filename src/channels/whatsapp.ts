@@ -1316,7 +1316,9 @@ registerChannelAdapter('whatsapp', {
 
           log.info('WhatsApp connection closed', { reason, shouldReconnect, shuttingDown });
 
-          if (shouldReconnect && safetyLimits && noteConnectionDrop()) {
+          // Only a linked number can be unstable: a QR or pairing code that
+          // expires while linking (408 with no account yet) is not a drop.
+          if (shouldReconnect && safetyLimits && state.creds.me && noteConnectionDrop()) {
             log.warn('WhatsApp unstable: pausing automated reminders for 1 hour');
           }
           if (shouldReconnect) {
