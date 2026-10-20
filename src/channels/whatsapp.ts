@@ -109,6 +109,8 @@ const AUTH_DIR = path.join(process.cwd(), 'store', 'auth');
 const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
 const GROUP_METADATA_CACHE_TTL_MS = 60_000; // 1 min for outbound sends
 const SENT_MESSAGE_CACHE_MAX = 256;
+/** Own number: how long Miro stays shown as online after its last reply. */
+export const ONLINE_AFTER_REPLY_MS = 20_000;
 const RECONNECT_DELAY_MS = 5000;
 const RECONNECT_MAX_DELAY_MS = 60_000;
 const PENDING_QUESTIONS_MAX = 64;
@@ -693,6 +695,25 @@ registerChannelAdapter('whatsapp', {
     const budget = new DailySendBudget();
     const mediaAround = new MediaAroundMention<Awaited<ReturnType<typeof downloadInboundMedia>>[number]>();
     let joinTimer: NodeJS.Timeout | null = null;
+    // Own number: online only while replying, like a person using WhatsApp
+    // Web, then offline again (see markOnlineOnConnect).
+    let shownOnline = false;
+    let offlineTimer: NodeJS.Timeout | null = null;
+    function onlineWhileReplying(): void {
+      if (!isOwnNumber()) return;
+      if (!shownOnline) {
+        shownOnline = true;
+        sock.sendPresenceUpdate('available').catch((err) => log.debug('Failed to show online', { err }));
+      }
+      if (offlineTimer) clearTimeout(offlineTimer);
+      offlineTimer = setTimeout(() => {
+        offlineTimer = null;
+        shownOnline = false;
+        sock.sendPresenceUpdate('unavailable').catch((err) => log.debug('Failed to show offline', { err }));
+      }, ONLINE_AFTER_REPLY_MS);
+      offlineTimer.unref?.();
+    }
+
     /** Every send goes through here: cold-chat guard, the number's daily limit, then the pacer. */
     async function safeSend(jid: string, content: Parameters<WASocket['sendMessage']>[1]) {
       if (safetyLimits && jid !== botPhoneJid && !mayMessageChat(jid, knownPersonalChats)) {
@@ -714,6 +735,7 @@ registerChannelAdapter('whatsapp', {
         }
       }
       await pacer.next();
+      onlineWhileReplying();
       return sock.sendMessage(jid, content);
     }
 
@@ -1444,6 +1466,7 @@ registerChannelAdapter('whatsapp', {
 
           // Announce availability for presence updates (not on a business's
           // own number: see markOnlineOnConnect above).
+          shownOnline = false;
           sock.sendPresenceUpdate(isOwnNumber() ? 'unavailable' : 'available').catch((err) => {
             log.warn('Failed to send presence update', { err });
           });
@@ -1860,6 +1883,7 @@ registerChannelAdapter('whatsapp', {
 
       async setTyping(platformId: string) {
         try {
+          onlineWhileReplying();
           await sock.sendPresenceUpdate('composing', platformId);
         } catch (err) {
           log.debug('Failed to update typing status', { jid: platformId, err });
