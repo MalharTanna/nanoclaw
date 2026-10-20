@@ -264,6 +264,47 @@ export function isOwnReplyText(content: string, name: string = displayName()): b
   return content.startsWith(`*${name}:*`) || content.startsWith(`*${ASSISTANT_NAME}:*`);
 }
 
+export const GROUP_LIST_FILE = 'wa-groups.json';
+
+type GroupMetaLike = {
+  subject?: string | null;
+  size?: number | null;
+  participants?: unknown[] | null;
+  isCommunity?: boolean | null;
+  isCommunityAnnounce?: boolean | null;
+  linkedParent?: string | null;
+};
+
+/**
+ * The groups this number is in, for the business to turn Miro on or off from
+ * its dashboard: id, name, member count and whether it is a community. Names
+ * are the group's own subject; no member details are kept. Sorted by name.
+ */
+export function groupList(
+  groups: Record<string, GroupMetaLike>,
+): { jid: string; name: string; size: number; community: boolean }[] {
+  return Object.entries(groups)
+    .filter(([jid]) => jid.endsWith('@g.us'))
+    .map(([jid, m]) => ({
+      jid,
+      name: (m.subject ?? '').slice(0, 120),
+      size: m.size ?? m.participants?.length ?? 0,
+      community: Boolean(m.isCommunity || m.isCommunityAnnounce || m.linkedParent),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, 500);
+}
+
+function writeGroupList(file: string, groups: Record<string, GroupMetaLike>): void {
+  try {
+    const tmp = `${file}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ at: new Date().toISOString(), groups: groupList(groups) }), { mode: 0o600 });
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    log.warn('Could not save the group list', { err });
+  }
+}
+
 export function personalChatAllowed(
   jid: string,
   env: Record<string, string | undefined> = readEnvFile(['WHATSAPP_PERSONAL_CHATS', 'WHATSAPP_PERSONAL_ALLOW']),
@@ -986,6 +1027,12 @@ registerChannelAdapter('whatsapp', {
       log.info('Force re-key complete', { ok, failed, total: targets.length });
     }
 
+    // Own number: the group list kept for the dashboard. Fetched only at the
+    // regular group sync; joins and renames in between come from WhatsApp's
+    // own group notifications (no extra fetches).
+    const groupListFile = path.join(process.cwd(), 'store', GROUP_LIST_FILE);
+    let knownGroups: Record<string, GroupMetaLike> | null = null;
+
     async function syncGroupMetadata(force = false): Promise<void> {
       if (!force && lastGroupSync && Date.now() - lastGroupSync < GROUP_SYNC_INTERVAL_MS) {
         return;
@@ -999,6 +1046,11 @@ registerChannelAdapter('whatsapp', {
             setupConfig.onMetadata(jid, metadata.subject, true);
             count++;
           }
+        }
+        // A business's own number: the list it turns groups on and off from in its dashboard.
+        if (isOwnNumber()) {
+          knownGroups = { ...groups };
+          writeGroupList(groupListFile, knownGroups);
         }
         lastGroupSync = Date.now();
         log.info('Group metadata synced', { count });
@@ -1649,6 +1701,15 @@ registerChannelAdapter('whatsapp', {
         }
       };
       sock.ev.on('messages.upsert', async ({ messages }) => processIncoming(messages));
+      if (isOwnNumber()) {
+        const merge = (updates: Array<{ id?: string | null } & GroupMetaLike>) => {
+          if (!knownGroups) return;
+          for (const u of updates) if (u.id) knownGroups[u.id] = { ...knownGroups[u.id], ...u };
+          writeGroupList(groupListFile, knownGroups);
+        };
+        sock.ev.on('groups.upsert', (groups) => merge(groups));
+        sock.ev.on('groups.update', (updates) => merge(updates));
+      }
 
       // History sync after a fresh link: answer what was missed while offline.
       sock.ev.on('messaging-history.set', async ({ messages }) => {
