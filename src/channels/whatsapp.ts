@@ -49,6 +49,7 @@ import { waChannel } from '../wa-mode.js';
 import { isOwnNumber } from '../install-mode.js';
 import { matchOwnerCommand } from '../owner-commands.js';
 import { MediaAroundMention } from '../media-around-mention.js';
+import { FollowUpWindow } from '../follow-up-window.js';
 import { ensureOwnerSelfChat } from '../owner-self-chat.js';
 import { isChatWired } from '../chat-wired.js';
 import { addressesAssistant, displayName } from '../assistant-names.js';
@@ -693,6 +694,7 @@ registerChannelAdapter('whatsapp', {
       }
     };
     const budget = new DailySendBudget();
+    const followUps = new FollowUpWindow();
     const mediaAround = new MediaAroundMention<Awaited<ReturnType<typeof downloadInboundMedia>>[number]>();
     let joinTimer: NodeJS.Timeout | null = null;
     // Own number: online only while replying, like a person using WhatsApp
@@ -1675,6 +1677,15 @@ registerChannelAdapter('whatsapp', {
               const r = mediaAround.apply(`${chatJid}|${sender}`, Date.now(), { addressed: named, attachments });
               if (r.attachments !== attachments) attachments.splice(0, attachments.length, ...r.attachments);
               if (r.addressed && !named) addressedInGroup = true;
+              // A follow-up from the person who just talked to the assistant needs no tag.
+              const ctx = (normalized as { extendedTextMessage?: { contextInfo?: { mentionedJid?: string[] } } })
+                .extendedTextMessage?.contextInfo;
+              const tagsSomeoneElse = !botMentionedInGroup && (ctx?.mentionedJid?.length ?? 0) > 0;
+              const followUp = followUps.apply(`${chatJid}|${sender}`, Date.now(), {
+                addressed: named || addressedInGroup,
+                tagsSomeoneElse,
+              });
+              if (followUp && !named) addressedInGroup = true;
             }
 
             // A join code in a group: tell the join-code check how big the
