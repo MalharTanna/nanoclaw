@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const deliver = vi.fn();
 vi.mock('./delivery.js', () => ({ getDeliveryAdapter: () => ({ deliver }) }));
+const returning = vi.fn((_ag: string, _ch: string, _pid: string) => false);
+vi.mock('./returning-group.js', () => ({ isReturningGroup: (ag: string, ch: string, pid: string) => returning(ag, ch, pid) }));
 
 import type { InboundEvent } from './channels/adapter.js';
 import {
@@ -304,6 +306,40 @@ describe('group join cooling on linked device', () => {
     expect(released).toMatchObject({ platformId: '120363413823499259@g.us', code: 'AB23CD', sentAt: new Date(at).toISOString() });
     expect(JSON.parse(deliver.mock.calls[0]![4]).text).toContain('connected to **Miro**');
     expect(fs.readFileSync(queuedJoinsPath(dir), 'utf8')).toBe('');
+  });
+});
+
+describe('returning groups skip the join queue', () => {
+  let store: string;
+  beforeEach(() => {
+    store = fs.mkdtempSync(path.join(os.tmpdir(), 'join-store-'));
+    process.env.WHATSAPP_CHANNEL = 'linked';
+  });
+  afterEach(() => {
+    delete process.env.WHATSAPP_CHANNEL;
+    returning.mockReset().mockReturnValue(false);
+    fs.rmSync(store, { recursive: true, force: true });
+  });
+
+  it('a group the business used before joins at once, even at night and past 2 a day', async () => {
+    const now = Date.parse('2026-10-27T16:33:00.000Z'); // 10:03 PM IST
+    arm({ AB23CD: { expiresAt: new Date(now + 6 * 3_600_000).toISOString() } });
+    returning.mockReturnValue(true);
+    for (let i = 0; i < 4; i++) {
+      const at = now + i * 60_000;
+      expect(await maybeHandleJoinCode({ ...event(true, `12036341382349925${i}@g.us`), message: { ...event().message, timestamp: new Date(at).toISOString() } } as InboundEvent, 'join AB23CD', dir, at, store)).toBe(true);
+    }
+    expect(requests()).toHaveLength(4);
+    expect(returning).toHaveBeenCalledWith('ag-org-1', 'whatsapp', '120363413823499250@g.us');
+    expect(deliver.mock.calls.map((c) => JSON.parse(c[4]).text).join('\n')).not.toContain("I'll start in this group");
+  });
+
+  it('a new group at night still waits for 8 AM', async () => {
+    const now = Date.parse('2026-10-27T16:33:00.000Z');
+    arm({ AB23CD: { expiresAt: new Date(now + 6 * 3_600_000).toISOString() } });
+    expect(await maybeHandleJoinCode({ ...event(true), message: { ...event().message, timestamp: new Date(now).toISOString() } } as InboundEvent, 'join AB23CD', dir, now, store)).toBe(true);
+    expect(requests()).toHaveLength(0);
+    expect(JSON.parse(deliver.mock.calls[0]![4]).text).toContain("I'll start in this group at 8:00 AM tomorrow");
   });
 });
 

@@ -30,6 +30,7 @@ import type { InboundEvent } from './channels/adapter.js';
 import { bookJoinSlot, joinTimeText } from './wa-limits.js';
 import { waChannel } from './wa-mode.js';
 import { isOwnNumber } from './install-mode.js';
+import { isReturningGroup } from './returning-group.js';
 
 export const JOIN_RE = /^\s*join\s+([A-HJ-NP-Z2-9]{6})\s*$/i;
 const INVALID_REPLY_COOLDOWN_MS = 10 * 60_000;
@@ -241,7 +242,8 @@ export async function maybeHandleJoinCode(
     instance: event.instance ?? event.channelType,
   };
   // New groups are joined a few a day (src/wa-limits.ts): later ones wait for their slot.
-  if (isGroup && waChannel() === 'linked') {
+  // A group the business already used Miro in (wired now, or before a move) starts at once.
+  if (isGroup && waChannel() === 'linked' && !isReturningGroup(armed.agentGroupId, event.channelType, event.platformId)) {
     const slot = bookJoinSlot(now, storeDir, armed.tenantId);
     if (slot === null) {
       await reply(event, "Thanks! I'm joining a lot of new groups right now. Please send the same join code again tomorrow.");
