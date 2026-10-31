@@ -109,6 +109,31 @@ describe('group join cooling', () => {
     expect(bookJoinSlot(NOW, dir)).toBeNull(); // day after tomorrow 8 AM is > 40 h away
   });
 
+  it('an exempt business skips its own daily limit, but not the number-wide one or the gap', () => {
+    markLinked('917984941891', NOW, dir);
+    const day = (s: number | null) => joinTimeText(s!, NOW).split(' ').pop();
+    process.env.JOIN_LIMIT_EXEMPT_TENANTS = 'org_a, org_me';
+    try {
+      const mine = [bookJoinSlot(NOW, dir, 'org_me'), bookJoinSlot(NOW, dir, 'org_me'), bookJoinSlot(NOW, dir, 'org_me')];
+      expect(mine.map(day)).toEqual(['today', 'today', 'today']);
+      expect(mine[1]! - mine[0]!).toBeGreaterThanOrEqual(30 * 60_000);
+      expect(day(bookJoinSlot(NOW, dir, 'org_me'))).toBe('tomorrow'); // the number's limit for today is used up
+    } finally {
+      delete process.env.JOIN_LIMIT_EXEMPT_TENANTS;
+    }
+  });
+
+  it('a business that is not exempt keeps its limit', () => {
+    markLinked('917984941891', NOW, dir);
+    process.env.JOIN_LIMIT_EXEMPT_TENANTS = 'org_me';
+    try {
+      const slots = [bookJoinSlot(NOW, dir, 'org_x'), bookJoinSlot(NOW, dir, 'org_x'), bookJoinSlot(NOW, dir, 'org_x')];
+      expect(joinTimeText(slots[2]!, NOW)).toContain('tomorrow');
+    } finally {
+      delete process.env.JOIN_LIMIT_EXEMPT_TENANTS;
+    }
+  });
+
   it('says when, in India time', () => {
     expect(joinTimeText(NOW + 30 * 60_000, NOW)).toBe('10:30 AM today');
     expect(joinTimeText(Date.parse('2026-10-21T02:30:00.000Z'), NOW)).toBe('8:00 AM tomorrow');

@@ -203,6 +203,12 @@ export function nextJoinSlot(taken: JoinSlot[], now: number, since: number, tena
   return t;
 }
 
+/** Businesses free of the per-business daily limit (comma-separated ids); the number-wide limits still apply. */
+function joinLimitExempt(tenant: string): boolean {
+  const list = process.env.JOIN_LIMIT_EXEMPT_TENANTS || readEnvFile(['JOIN_LIMIT_EXEMPT_TENANTS']).JOIN_LIMIT_EXEMPT_TENANTS || '';
+  return list.split(',').map((x) => x.trim()).includes(tenant);
+}
+
 /** A queued join must still be within the node-agent's 48-hour grace for late join codes. */
 export const MAX_JOIN_WAIT_MS = 40 * 60 * 60_000;
 
@@ -218,7 +224,7 @@ export function bookJoinSlot(now: number = Date.now(), dir = storeDir(), tenant?
   const taken = readJson<unknown[]>(file, [])
     .map((x): JoinSlot | null => (typeof x === 'number' ? { t: x } : x && typeof (x as JoinSlot).t === 'number' ? (x as JoinSlot) : null))
     .filter((x): x is JoinSlot => x !== null && x.t > now - 3 * DAY_MS);
-  const slot = nextJoinSlot(taken, now, linkedSince(now, dir), tenant);
+  const slot = nextJoinSlot(taken, now, linkedSince(now, dir), tenant && !joinLimitExempt(tenant) ? tenant : undefined);
   if (slot - now > MAX_JOIN_WAIT_MS) return null;
   writeJson(file, [...taken, { t: slot, ...(tenant ? { tenant } : {}) }]);
   return slot;
