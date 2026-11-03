@@ -4,6 +4,8 @@
  * Thin orchestrator: init DB, run migrations, start channel adapters,
  * start delivery polls, start sweep, handle shutdown.
  */
+// First: hides Signal session records the WhatsApp library prints to the console.
+import './console-redact.js';
 import path from 'path';
 
 import { backfillContainerConfigs } from './backfill-container-configs.js';
