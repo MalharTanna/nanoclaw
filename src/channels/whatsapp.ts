@@ -45,6 +45,7 @@ import { readEnvFile } from '../env.js';
 import { log } from '../log.js';
 import { idTag } from '../log-redact.js';
 import { registerChannelAdapter } from './channel-registry.js';
+import { ackStatusStanzas } from './wa-status-ack.js';
 import { waChannel } from '../wa-mode.js';
 import { isOwnNumber } from '../install-mode.js';
 import { matchOwnerCommand } from '../owner-commands.js';
@@ -1323,6 +1324,8 @@ registerChannelAdapter('whatsapp', {
           return proto.Message.create({});
         },
       });
+      // Unacked <status> stanzas end the stream every ~50 minutes (wa-status-ack.ts).
+      ackStatusStanzas(sock);
 
       // Request pairing code only when there's no paired account yet.
       //
