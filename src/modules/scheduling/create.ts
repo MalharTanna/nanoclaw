@@ -8,7 +8,7 @@ import { inboundDbPath, resolveTaskSession, withInboundDb } from '../../session-
 import { parseZonedToUtc } from '../../timezone.js';
 import { insertTaskRow, plainReminderPrompt } from './db.js';
 
-export const MAX_DAILY_FIRES = 4;
+export const MAX_DAILY_FIRES = 24;
 
 const RECURRENCE_LIMIT_WARNING =
   'Warning: this task has not been scheduled. Frequent running tasks consume the ' +

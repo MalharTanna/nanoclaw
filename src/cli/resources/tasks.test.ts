@@ -30,7 +30,7 @@ import { inboundDbPath, initSessionFolder } from '../../session-manager.js';
 import { dispatch } from '../dispatch.js';
 import { formatTasksTable } from '../format-tasks.js';
 import type { CallerContext } from '../frame.js';
-import './tasks.js';
+import { DAILY_REMINDERS_PER_CHAT } from './tasks.js';
 import '../commands/index.js'; // registers tasks-help for the help-topic test
 
 function now(): string {
@@ -462,7 +462,7 @@ describe('tasks CLI resource', () => {
       }
     });
 
-    it('caps a chat at 10 reminder messages a day on the shared number, counting every fire of repeating ones', async () => {
+    it('caps a chat at DAILY_REMINDERS_PER_CHAT reminder messages a day on the shared number, counting every fire of repeating ones', async () => {
       process.env.NANOCLAW_SHARED_NUMBER = 'true';
       const a = chat('mg-cap', 'chat-cap');
       const b = chat('mg-cap2', 'chat-cap2');
@@ -472,12 +472,15 @@ describe('tasks CLI resource', () => {
           ctx,
         );
 
-      // Hourly water 10 AM-6 PM on 1 Mar 2999: 9 messages. A plain reminder may repeat more than 4 times a day.
-      expect((await add(a, 'water', { recurrence: '0 10-18 * * *', process_after: '2999-03-01 10:00' })).ok).toBe(true);
-      expect((await add(a, 'quote', { process_after: '2999-03-01 11:30' })).ok).toBe(true); // 10th
-      const eleventh = await add(a, 'call', { process_after: '2999-03-01 17:30' });
-      expect(eleventh.ok).toBe(false);
-      expect(JSON.stringify(eleventh)).toContain('at most 10 a day');
+      // Every 10 minutes all day on 1 Mar 2999: 144 messages. A plain reminder may repeat as often as it likes.
+      expect((await add(a, 'water', { recurrence: '*/10 * * * *', process_after: '2999-03-01 00:00' })).ok).toBe(true);
+      for (let i = 144; i < DAILY_REMINDERS_PER_CHAT; i++)
+        expect(
+          (await add(a, `one-${i}`, { process_after: `2999-03-01 ${String(i - 140).padStart(2, '0')}:05` })).ok,
+        ).toBe(true);
+      const over = await add(a, 'call', { process_after: '2999-03-01 17:31' });
+      expect(over.ok).toBe(false);
+      expect(JSON.stringify(over)).toContain(`at most ${DAILY_REMINDERS_PER_CHAT} a day`);
       // Another chat is fine.
       expect((await add(b, 'call', { process_after: '2999-03-01 17:30' })).ok).toBe(true);
       // A court-board watch checks every 5 minutes but messages only when its script says so: it doesn't count.
@@ -496,7 +499,7 @@ describe('tasks CLI resource', () => {
         a,
       );
       expect(watch.ok).toBe(true);
-      // A repeating task that wakes the AI keeps the 4-a-day limit, with no override.
+      // A repeating task that wakes the AI keeps the MAX_DAILY_FIRES limit, with no override.
       const agentTask = await dispatch(
         {
           id: 'c-ai',
@@ -504,7 +507,7 @@ describe('tasks CLI resource', () => {
           args: {
             name: 'brief',
             prompt: 'Summarise the court board',
-            recurrence: '0 * * * *',
+            recurrence: '*/30 * * * *',
             dangerously_override_recurrence_limit: true,
           },
         },

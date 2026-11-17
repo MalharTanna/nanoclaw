@@ -286,7 +286,7 @@ function createTask(args: Record<string, unknown>, ctx: CallerContext) {
 }
 
 /** Shared bot number: reminder messages a chat may get on one day (repeating ones counted per fire). */
-export const DAILY_REMINDERS_PER_CHAT = 10;
+export const DAILY_REMINDERS_PER_CHAT = 150;
 
 /** Calendar day (install time zone) of a timestamp, as YYYY-MM-DD. */
 function dayOf(ms: number): string {
@@ -742,8 +742,7 @@ registerResource({
         {
           name: 'dangerously_override_recurrence_limit',
           type: 'boolean',
-          description:
-            'Schedule more than 4 fires/day anyway. Only after the user explicitly confirmed they understand the quota/token cost and you agree it is right.',
+          description: `Schedule more than ${MAX_DAILY_FIRES} fires/day anyway. Only after the user explicitly confirmed they understand the quota/token cost and you agree it is right.`,
         },
         {
           name: 'process_after',
@@ -812,8 +811,7 @@ registerResource({
         {
           name: 'dangerously_override_recurrence_limit',
           type: 'boolean',
-          description:
-            'Schedule more than 4 fires/day anyway. Only after the user explicitly confirmed they understand the quota/token cost and you agree it is right.',
+          description: `Schedule more than ${MAX_DAILY_FIRES} fires/day anyway. Only after the user explicitly confirmed they understand the quota/token cost and you agree it is right.`,
         },
         { name: 'script', type: 'string', description: 'New pre-task script; "null"/"none" removes it.' },
         {
