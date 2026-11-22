@@ -19,6 +19,9 @@
  */
 import fs from 'fs';
 
+import { getContainerConfig } from '../../db/container-configs.js';
+import { log } from '../../log.js';
+import { adapterPrefixesReplies, replyPrefixMode, withGroupPrefix } from '../../reply-prefix.js';
 import { heartbeatPath } from '../../session-manager.js';
 
 const TYPING_REFRESH_MS = 4000;
@@ -44,8 +47,26 @@ const HEARTBEAT_FRESH_MS = 6000;
  */
 const POST_DELIVERY_PAUSE_MS = 10000;
 
+/**
+ * "Working on it" notice: if a WhatsApp request is still being worked on
+ * this long after it arrived (reading a document, research, drafting),
+ * tell the chat once, so people know Miro hasn't stalled. Sent at most once
+ * per request: the next user-facing reply (or the agent going idle) resets it.
+ */
+export const WORKING_NOTICE_AFTER_MS = 20_000;
+export const WORKING_NOTICE_TEXT = "Working on it, I'll reply in a moment.";
+
 interface TypingAdapter {
   setTyping?(channelType: string, platformId: string, threadId: string | null, instance?: string): Promise<void>;
+  deliver?(
+    channelType: string,
+    platformId: string,
+    threadId: string | null,
+    kind: string,
+    content: string,
+    files?: undefined,
+    instance?: string,
+  ): Promise<string | undefined>;
 }
 
 interface TypingTarget {
@@ -62,6 +83,36 @@ interface TypingTarget {
 
 let adapter: TypingAdapter | null = null;
 const typingRefreshers = new Map<string, TypingTarget>();
+/** Per session: the pending notice timer, or 'sent' once it went out for the current request. */
+const workingNotices = new Map<string, NodeJS.Timeout | 'sent'>();
+
+function clearWorkingNotice(sessionId: string): void {
+  const n = workingNotices.get(sessionId);
+  if (n && n !== 'sent') clearTimeout(n);
+  workingNotices.delete(sessionId);
+}
+
+/** Arm the notice for a new request, unless one is already pending or sent. */
+function armWorkingNotice(sessionId: string, channelType: string): void {
+  if (channelType !== 'whatsapp' || workingNotices.has(sessionId)) return;
+  const timer = setTimeout(() => {
+    workingNotices.set(sessionId, 'sent');
+    const entry = typingRefreshers.get(sessionId);
+    // Only while the agent is still actively working; a request it finished
+    // without replying (nothing to say) gets no notice.
+    if (!entry || !isHeartbeatFresh(entry.agentGroupId, sessionId) || !adapter?.deliver) return;
+    let content = JSON.stringify({ text: WORKING_NOTICE_TEXT });
+    // Shared number: like every reply, it carries this business's assistant name.
+    if (replyPrefixMode() === 'group' && !adapterPrefixesReplies(entry.channelType))
+      content = withGroupPrefix('chat', content, getContainerConfig(entry.agentGroupId)?.assistant_name);
+    adapter
+      .deliver(entry.channelType, entry.platformId, entry.threadId, 'chat', content, undefined, entry.instance)
+      .then(() => log.info('Working notice sent', { sessionId }))
+      .catch(() => {}); // best-effort, like typing
+  }, WORKING_NOTICE_AFTER_MS);
+  timer.unref();
+  workingNotices.set(sessionId, timer);
+}
 
 /**
  * Bind the typing module to the channel delivery adapter so it can
@@ -125,6 +176,7 @@ export function startTypingRefresh(
     existing.platformId = platformId;
     existing.threadId = threadId;
     existing.instance = instance;
+    armWorkingNotice(sessionId, channelType);
     return;
   }
 
@@ -149,6 +201,7 @@ export function startTypingRefresh(
     // Out of grace AND heartbeat stale — agent is idle, stop refreshing.
     clearInterval(entry.interval);
     typingRefreshers.delete(sessionId);
+    clearWorkingNotice(sessionId);
   }, TYPING_REFRESH_MS);
   // unref so a stale refresher can't hold the event loop alive.
   interval.unref();
@@ -162,6 +215,7 @@ export function startTypingRefresh(
     startedAt,
     pausedUntil: 0,
   });
+  armWorkingNotice(sessionId, channelType);
 }
 
 /**
@@ -171,12 +225,15 @@ export function startTypingRefresh(
  * pushes it back on. No-op if no refresh is active for this session.
  */
 export function pauseTypingRefreshAfterDelivery(sessionId: string): void {
+  // A real reply reached the chat: the request is answered, no notice needed.
+  clearWorkingNotice(sessionId);
   const entry = typingRefreshers.get(sessionId);
   if (!entry) return;
   entry.pausedUntil = Date.now() + POST_DELIVERY_PAUSE_MS;
 }
 
 export function stopTypingRefresh(sessionId: string): void {
+  clearWorkingNotice(sessionId);
   const entry = typingRefreshers.get(sessionId);
   if (!entry) return;
   clearInterval(entry.interval);
